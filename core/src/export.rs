@@ -91,6 +91,20 @@ fn page_plain_text(page: &RedactedPage) -> String {
     page.spans.iter().map(|s| s.text.as_str()).collect()
 }
 
+/// Plain-text join of already-redacted pages (W27: `ai_payload_preview` / the Cloud AI
+/// share body). Reuses [`page_plain_text`] — the same span-selection this module's PDF
+/// renderer uses — rather than a second walk over `pages`, so the HTTP path and the PDF
+/// path can never disagree about which bytes survived redaction (testing.md §5.3's "code
+/// that selects bytes for PDF / HTTP" is meant to be **one** gated implementation).
+#[must_use]
+pub fn plain_text_from_pages(pages: &[RedactedPage]) -> String {
+    pages
+        .iter()
+        .map(page_plain_text)
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
+
 fn page_content(text: &str) -> Vec<u8> {
     let mut content = Content::new();
     content.begin_text();

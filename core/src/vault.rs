@@ -35,6 +35,7 @@ use crate::catalog::{
     ApprovedVersion, CatalogError, DocumentMeta, DocumentStore, OriginalRecord, VariantListRow,
     VariantRecord,
 };
+use crate::cloud_ai::{CloudAiError, CloudAiSecret, CloudAiStore};
 use crate::config::{Config, ConfigError, ConfigStore};
 use crate::crypto::{WrappedBlob, NONCE_LEN};
 use crate::keys::{VaultMasterKey, KEY_LEN};
@@ -698,6 +699,124 @@ fn config_err(e: VaultError) -> ConfigError {
     match e {
         VaultError::WrongKey => ConfigError::Backend("vault key mismatch"),
         VaultError::Backend(class) => ConfigError::Backend(class),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// CloudAiStore over the same connection (W27, data-model §5.7). The `artifact` table's
+// unique `kind=5` row (`uq_artifact_cloud_ai`, W3's schema) holds the envelope-encrypted
+// `CloudAiSecret` blob, referenced from `plugin_secret` by a fixed `plugin_id` (v1 ships
+// exactly one plugin, architecture §8.1). Same wrapped-DEK packing as `ConfigStore` above.
+// ---------------------------------------------------------------------------
+
+const CLOUD_AI_KIND: i64 = 5; // `ArtifactKind::PluginSecret as u8`, data-model §6.
+
+/// The only plugin secret v1 ever stores. Opaque beyond that — `plugin_secret.plugin_id`
+/// exists in the schema for a future multi-plugin world (architecture §8.2), not used here
+/// to distinguish anything yet.
+const CLOUD_AI_PLUGIN_ID: &str = "cloud_ai_v1";
+
+impl CloudAiStore for SqlCipherVault {
+    fn load(&self, master: &VaultMasterKey) -> Result<Option<CloudAiSecret>, CloudAiError> {
+        let row = self
+            .with_conn(|conn| {
+                conn.query_row(
+                    "SELECT a.wrapped_dek, a.nonce, a.ciphertext
+                       FROM plugin_secret p JOIN artifact a ON a.artifact_id = p.artifact_id
+                      WHERE p.plugin_id = ?1 AND a.kind = ?2 LIMIT 1",
+                    rusqlite::params![CLOUD_AI_PLUGIN_ID, CLOUD_AI_KIND],
+                    |r| {
+                        let wrapped_dek: Vec<u8> = r.get(0)?;
+                        let nonce: Vec<u8> = r.get(1)?;
+                        let ciphertext: Vec<u8> = r.get(2)?;
+                        Ok((wrapped_dek, nonce, ciphertext))
+                    },
+                )
+                .optional()
+                .map_err(|_| VaultError::Backend("cloud ai query failed"))
+            })
+            .map_err(cloud_ai_err)?;
+
+        let Some((wrapped_dek_bytes, nonce, ciphertext)) = row else {
+            return Ok(None);
+        };
+        let wrapped_dek = unpack_wrapped_dek(&wrapped_dek_bytes).map_err(cloud_ai_err)?;
+        let artifact_blob = WrappedBlob { nonce, ciphertext };
+        crate::cloud_ai::open_cloud_ai_secret(master, &wrapped_dek, &artifact_blob).map(Some)
+    }
+
+    fn store(&self, master: &VaultMasterKey, secret: &CloudAiSecret) -> Result<(), CloudAiError> {
+        let (wrapped_dek, artifact_blob) = crate::cloud_ai::seal_cloud_ai_secret(master, secret)?;
+        let wrapped_dek_bytes = pack_wrapped_dek(&wrapped_dek);
+        let artifact_id = uuid::Uuid::new_v4().to_string();
+        let created_at_unix_ms = now_unix_ms();
+
+        self.with_conn_mut(|conn| {
+            let tx = conn
+                .transaction()
+                .map_err(|_| VaultError::Backend("could not start transaction"))?;
+            // Delete order matches the foreign key: `plugin_secret` references `artifact`,
+            // so it must go first (architecture §4.3 / data-model §7 delete-ordering
+            // discipline, same as every other artifact-replace in this module).
+            tx.execute(
+                "DELETE FROM plugin_secret WHERE plugin_id = ?1",
+                [CLOUD_AI_PLUGIN_ID],
+            )
+            .map_err(|_| VaultError::Backend("cloud ai plugin_secret delete failed"))?;
+            tx.execute("DELETE FROM artifact WHERE kind = ?1", [CLOUD_AI_KIND])
+                .map_err(|_| VaultError::Backend("cloud ai artifact delete failed"))?;
+            tx.execute(
+                "INSERT INTO artifact
+                    (artifact_id, kind, doc_id, format_version, wrapped_dek, nonce, ciphertext, created_at_unix_ms)
+                 VALUES (?1, ?2, NULL, ?3, ?4, ?5, ?6, ?7)",
+                rusqlite::params![
+                    artifact_id,
+                    CLOUD_AI_KIND,
+                    crate::cloud_ai::CLOUD_AI_FORMAT_VERSION,
+                    wrapped_dek_bytes,
+                    artifact_blob.nonce,
+                    artifact_blob.ciphertext,
+                    created_at_unix_ms,
+                ],
+            )
+            .map_err(|_| VaultError::Backend("cloud ai artifact insert failed"))?;
+            tx.execute(
+                "INSERT INTO plugin_secret (plugin_id, artifact_id) VALUES (?1, ?2)",
+                rusqlite::params![CLOUD_AI_PLUGIN_ID, artifact_id],
+            )
+            .map_err(|_| VaultError::Backend("cloud ai plugin_secret insert failed"))?;
+            tx.commit()
+                .map_err(|_| VaultError::Backend("cloud ai transaction commit failed"))?;
+            Ok(())
+        })
+        .map_err(cloud_ai_err)
+    }
+
+    fn clear(&self) -> Result<(), CloudAiError> {
+        self.with_conn_mut(|conn| {
+            let tx = conn
+                .transaction()
+                .map_err(|_| VaultError::Backend("could not start transaction"))?;
+            tx.execute(
+                "DELETE FROM plugin_secret WHERE plugin_id = ?1",
+                [CLOUD_AI_PLUGIN_ID],
+            )
+            .map_err(|_| VaultError::Backend("cloud ai plugin_secret delete failed"))?;
+            tx.execute("DELETE FROM artifact WHERE kind = ?1", [CLOUD_AI_KIND])
+                .map_err(|_| VaultError::Backend("cloud ai artifact delete failed"))?;
+            tx.commit()
+                .map_err(|_| VaultError::Backend("cloud ai transaction commit failed"))?;
+            Ok(())
+        })
+        .map_err(cloud_ai_err)
+    }
+}
+
+/// Preserve the real `VaultError` class (same reasoning as `account_store_err`/`audit_err`).
+fn cloud_ai_err(e: VaultError) -> CloudAiError {
+    match e {
+        VaultError::WrongKey => CloudAiError::Backend("vault key mismatch"),
+        VaultError::Backend(class) => CloudAiError::Backend(class),
     }
 }
 

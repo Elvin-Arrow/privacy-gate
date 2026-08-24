@@ -252,6 +252,25 @@ impl ApiError {
         )
     }
 
+    /// api.md §3 / architecture §9.3: TLS/HTTP failure talking to the allowlisted Cloud AI
+    /// host (connect, TLS, timeout, or an unparseable success response).
+    #[must_use]
+    pub fn cloud_ai_network() -> Self {
+        Self::new(
+            ErrorCode::CloudAiNetwork,
+            "could not reach the configured cloud ai endpoint",
+        )
+    }
+
+    /// api.md §3: the Cloud AI endpoint returned 4xx/5xx.
+    #[must_use]
+    pub fn cloud_ai_refused() -> Self {
+        Self::new(
+            ErrorCode::CloudAiRefused,
+            "cloud ai endpoint refused the request",
+        )
+    }
+
     /// api.md §3: unexpected core failure; the class is non-secret.
     #[must_use]
     pub fn internal(message: &'static str) -> Self {

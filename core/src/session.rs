@@ -46,6 +46,10 @@ use crate::catalog::{
     ApprovedVersion, CatalogError, DocumentMeta, DocumentStore, EffectiveRetention,
     FieldDecision, NullDocumentStore, OriginalRecord, VariantOverride, VariantRecord,
 };
+use crate::cloud_ai::{
+    key_last4, validate_endpoint_url, CloudAiCallError, CloudAiClient, CloudAiError,
+    CloudAiSecret, CloudAiStore, NullCloudAiStore,
+};
 use crate::config::{ConfigError, ConfigStore, DetectorPreference, NullConfigStore, RetentionPolicy};
 use crate::detector::{
     default_ollama_allowlist, AllowlistEntry, Detector, FallbackReason, HybridOllamaV1, HybridV1,
@@ -114,6 +118,10 @@ impl ProgressSink for NullProgressSink {
 
 /// api.md §5.1: "`passphrase` min length 8 (API floor; UI spec may urge longer)."
 pub const MIN_PASSPHRASE_LEN: usize = 8;
+
+/// api.md §4 `ShareRequestDto.ai_instruction`: "required non-empty when kind = share_to_ai;
+/// 1..=4000 chars."
+pub const MAX_AI_INSTRUCTION_CHARS: usize = 4000;
 
 /// api.md §5.1 / data-model §5.6: "`display_name` trimmed, 1..=80 chars."
 pub const MAX_DISPLAY_NAME_CHARS: usize = 80;
@@ -240,6 +248,12 @@ const SESSION_TABLE: &[(&str, &[SessionState])] = &[
     // W24: api.md §5.6, same generic document row (`no | no | yes | no`).
     ("preview_share", &[SessionState::Unlocked]),
     ("commit_share", &[SessionState::Unlocked]),
+    // W27: api.md §5.7, same generic config row as retention/detector preference (`no |
+    // no | yes | no` — unavailable while degraded, C-API-6).
+    ("cloud_ai_set_config", &[SessionState::Unlocked]),
+    ("cloud_ai_get_config", &[SessionState::Unlocked]),
+    ("cloud_ai_clear_config", &[SessionState::Unlocked]),
+    ("cloud_ai_test", &[SessionState::Unlocked]),
 ];
 
 /// api.md §2: is `command` callable while the session is in `state`? `false` for any
@@ -756,7 +770,7 @@ pub struct CommitShareIn {
     pub preview_token: String,
 }
 
-/// `commit_share` Out (api.md §5.6). AI fields stay null until W27.
+/// `commit_share` Out (api.md §5.6).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CommitShareOut {
     pub kind: ShareKind,
@@ -764,6 +778,50 @@ pub struct CommitShareOut {
     pub suggested_filename: Option<String>,
     pub output_text: Option<String>,
     pub audit_event_id: u64,
+}
+
+// ---------------------------------------------------------------------------
+// api.md §5.7 — Cloud AI configuration (W27)
+// ---------------------------------------------------------------------------
+
+/// `cloud_ai_set_config` In (api.md §5.7).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CloudAiSetConfigIn {
+    pub endpoint_url: String,
+    pub model: String,
+    pub api_key: String,
+}
+
+/// `cloud_ai_set_config` Out (api.md §5.7). Never `api_key` (architecture §9.1).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CloudAiSetConfigOut {
+    pub configured: bool,
+    pub endpoint_host: String,
+    pub model: String,
+    pub key_last4: String,
+}
+
+/// `cloud_ai_get_config` Out (api.md §5.7). Never `api_key`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CloudAiGetConfigOut {
+    pub configured: bool,
+    pub endpoint_url: Option<String>,
+    pub endpoint_host: Option<String>,
+    pub model: Option<String>,
+    pub key_last4: Option<String>,
+}
+
+/// `cloud_ai_clear_config` Out (api.md §5.7).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CloudAiClearConfigOut {
+    pub configured: bool,
+}
+
+/// `cloud_ai_test` Out (api.md §5.7). Sends no vault document content (C-API-4).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CloudAiTestOut {
+    pub ok: bool,
+    pub error_class: Option<String>,
 }
 
 /// In-process approval session (data-model §5.10). Lives on [`OpenSession`] so lock drops it.
@@ -912,14 +970,20 @@ struct OpenSession {
     preview: Option<LivePreview>,
 }
 
-/// In-RAM preview token (data-model §5.4: not persisted).
+/// In-RAM preview token (data-model §5.4: not persisted). `pdf_bytes`/`suggested_filename`
+/// are `Some` only for [`ShareKind::ExportToPerson`]; `ai_payload`/`ai_instruction` only for
+/// [`ShareKind::ShareToAi`] (W27) — `commit_share` sends exactly `ai_payload`, never
+/// re-deriving it from the vault, so it cannot drift from what `preview_share` showed
+/// (api.md §5.6 identity guarantee).
 #[derive(Debug)]
 struct LivePreview {
     token: String,
     expires_at_unix_ms: u64,
     kind: ShareKind,
-    pdf_bytes: Vec<u8>,
-    suggested_filename: String,
+    pdf_bytes: Option<Vec<u8>>,
+    suggested_filename: Option<String>,
+    ai_payload: Option<String>,
+    ai_instruction: Option<String>,
     doc_ids: Vec<String>,
     recipient_note: Option<String>,
     no_originals_left_device: Vec<bool>,
@@ -944,6 +1008,10 @@ pub struct SessionManager {
     ollama_addr: SocketAddr,
     ollama_allowlist: Vec<AllowlistEntry>,
     progress: Arc<dyn ProgressSink>,
+    /// W27: Cloud AI secret storage. Defaults to [`NullCloudAiStore`] (always "not
+    /// configured") in every constructor that predates W27, same pattern as `config`/
+    /// `documents`; see [`Self::with_cloud_ai`].
+    cloud_ai: Arc<dyn CloudAiStore>,
     open: Option<OpenSession>,
 }
 
@@ -1028,6 +1096,7 @@ impl SessionManager {
             ollama_addr: OLLAMA_LOOPBACK_ADDR,
             ollama_allowlist: default_ollama_allowlist(),
             progress: Arc::new(NullProgressSink),
+            cloud_ai: Arc::new(NullCloudAiStore),
             open: None,
         }
     }
@@ -1040,6 +1109,15 @@ impl SessionManager {
     #[must_use]
     pub fn with_documents(mut self, documents: Arc<dyn DocumentStore>) -> Self {
         self.documents = documents;
+        self
+    }
+
+    /// Override the Cloud AI secret backend (W27). Defaults to [`NullCloudAiStore`], under
+    /// which `cloud_ai_get_config` reports `configured: false` and `cloud_ai_set_config`
+    /// fails closed rather than silently succeeding with nowhere to persist the secret.
+    #[must_use]
+    pub fn with_cloud_ai(mut self, cloud_ai: Arc<dyn CloudAiStore>) -> Self {
+        self.cloud_ai = cloud_ai;
         self
     }
 
@@ -1778,6 +1856,147 @@ impl SessionManager {
         })
     }
 
+    /// `cloud_ai_set_config` — api.md §5.7; architecture §9.1.
+    ///
+    /// The frontend may hold `api_key` only until this call returns (architecture §9.1);
+    /// nothing on this manager retains a copy beyond what `self.cloud_ai` persists
+    /// encrypted, and no later command returns it (`cloud_ai_get_config` returns
+    /// `key_last4` only).
+    ///
+    /// # Errors
+    /// - `not_in_session` unless unlocked.
+    /// - `invalid_input` if `endpoint_url` is not `https://` with a host (no userinfo), or
+    ///   `model` / `api_key` is empty.
+    pub fn cloud_ai_set_config(
+        &mut self,
+        input: CloudAiSetConfigIn,
+    ) -> Result<CloudAiSetConfigOut, ApiError> {
+        if !command_allowed("cloud_ai_set_config", self.state()) {
+            return Err(ApiError::not_in_session());
+        }
+        let endpoint_host = validate_endpoint_url(&input.endpoint_url)
+            .map_err(ApiError::invalid_input)?;
+        if input.model.trim().is_empty() {
+            return Err(ApiError::invalid_input("model must not be empty"));
+        }
+        if input.api_key.is_empty() {
+            return Err(ApiError::invalid_input("api_key must not be empty"));
+        }
+        let open = self.require_open()?;
+        let secret = CloudAiSecret {
+            endpoint_url: input.endpoint_url,
+            model: input.model,
+            key_last4: key_last4(&input.api_key),
+            api_key: input.api_key,
+        };
+        self.cloud_ai
+            .store(&open.master, &secret)
+            .map_err(map_cloud_ai_err)?;
+        Ok(CloudAiSetConfigOut {
+            configured: true,
+            endpoint_host,
+            model: secret.model,
+            key_last4: secret.key_last4,
+        })
+    }
+
+    /// `cloud_ai_get_config` — api.md §5.7. Never returns `api_key` (architecture §9.1).
+    ///
+    /// # Errors
+    /// `not_in_session` unless unlocked.
+    pub fn cloud_ai_get_config(&self) -> Result<CloudAiGetConfigOut, ApiError> {
+        if !command_allowed("cloud_ai_get_config", self.state()) {
+            return Err(ApiError::not_in_session());
+        }
+        let open = self.require_open()?;
+        let secret = self.cloud_ai.load(&open.master).map_err(map_cloud_ai_err)?;
+        Ok(match secret {
+            None => CloudAiGetConfigOut {
+                configured: false,
+                endpoint_url: None,
+                endpoint_host: None,
+                model: None,
+                key_last4: None,
+            },
+            Some(secret) => {
+                // `validate_endpoint_url` cannot fail here: nothing this store ever writes
+                // came from anywhere but `cloud_ai_set_config`, which already validated it.
+                let endpoint_host = validate_endpoint_url(&secret.endpoint_url).ok();
+                CloudAiGetConfigOut {
+                    configured: true,
+                    endpoint_url: Some(secret.endpoint_url),
+                    endpoint_host,
+                    model: Some(secret.model),
+                    key_last4: Some(secret.key_last4),
+                }
+            }
+        })
+    }
+
+    /// `cloud_ai_clear_config` — api.md §5.7. Cryptographic erase of the plugin-secret DEK
+    /// (architecture §4.3): idempotent, so clearing an already-unconfigured secret is not
+    /// an error.
+    ///
+    /// # Errors
+    /// `not_in_session` unless unlocked.
+    pub fn cloud_ai_clear_config(&mut self) -> Result<CloudAiClearConfigOut, ApiError> {
+        if !command_allowed("cloud_ai_clear_config", self.state()) {
+            return Err(ApiError::not_in_session());
+        }
+        self.require_open()?;
+        self.cloud_ai.clear().map_err(map_cloud_ai_err)?;
+        Ok(CloudAiClearConfigOut { configured: false })
+    }
+
+    /// `cloud_ai_test` — api.md §5.7. Sends **no** vault document content (C-API-4): the
+    /// handshake is [`CloudAiClient::test`], a fixed non-document ping.
+    ///
+    /// # Errors
+    /// - `not_in_session` unless unlocked.
+    /// - `cloud_ai_not_configured` if no secret is stored.
+    pub fn cloud_ai_test(&self) -> Result<CloudAiTestOut, ApiError> {
+        if !command_allowed("cloud_ai_test", self.state()) {
+            return Err(ApiError::not_in_session());
+        }
+        let open = self.require_open()?;
+        let secret = self
+            .cloud_ai
+            .load(&open.master)
+            .map_err(map_cloud_ai_err)?
+            .ok_or_else(ApiError::cloud_ai_not_configured)?;
+        let client = CloudAiClient::new().map_err(ApiError::internal)?;
+        Ok(match client.test(&secret) {
+            Ok(()) => CloudAiTestOut {
+                ok: true,
+                error_class: None,
+            },
+            Err(CloudAiCallError::Network) => CloudAiTestOut {
+                ok: false,
+                error_class: Some(ErrorCode::CloudAiNetwork.as_str().to_string()),
+            },
+            Err(CloudAiCallError::Refused) => CloudAiTestOut {
+                ok: false,
+                error_class: Some(ErrorCode::CloudAiRefused.as_str().to_string()),
+            },
+        })
+    }
+
+    /// Test-only seam (mirrors `test_only_expire_preview`): store a Cloud AI secret
+    /// directly, bypassing `cloud_ai_set_config`'s `https://` validation, so tests can point
+    /// it at a plain-HTTP loopback mock (architecture §9.2's TLS requirement is a
+    /// production-endpoint property enforced at the command layer, not something a local
+    /// test double needs to satisfy — same reasoning `crate::detector::ollama`'s mock uses
+    /// plain HTTP for a loopback service that is never Cloud AI's egress path).
+    ///
+    /// # Errors
+    /// `not_in_session` unless unlocked; whatever the backend's `store` returns otherwise.
+    pub fn test_only_set_cloud_ai_config(&mut self, secret: CloudAiSecret) -> Result<(), ApiError> {
+        let open = self.require_open()?;
+        self.cloud_ai
+            .store(&open.master, &secret)
+            .map_err(map_cloud_ai_err)
+    }
+
     /// architecture §10.1.3: per-detect selection. Not cached on the session.
     fn detect_for_import(
         &self,
@@ -2502,33 +2721,57 @@ impl SessionManager {
         Ok(DeleteVariantOut { ok: true })
     }
 
-    /// `preview_share` — api.md §5.6; person-export only in W24 (Cloud AI is W27).
-    ///
-    /// Materialises the redacted PDF in RAM and issues a one-live-token preview. A second
-    /// preview replaces the first. W26: `per_doc_overrides` / `applied_variant_ids` are
+    /// `preview_share` — api.md §5.6. W26: `per_doc_overrides` / `applied_variant_ids` are
     /// applied ephemerally to `redacted_content` for this preview only — the canonical
-    /// `ApprovedVersion` in the Vault is never touched (FR-5.4, C-DES-5).
+    /// `ApprovedVersion` in the Vault is never touched (FR-5.4, C-DES-5). W27: `share_to_ai`
+    /// requires `ai_instruction` (1..=4000 chars) and a configured Cloud AI secret, checked
+    /// **before** any document is loaded (api.md §5.6 "fail before assembling a send").
     ///
     /// # Errors
     /// - `not_in_session` unless unlocked.
-    /// - `invalid_input` if `doc_ids` is empty, `ai_instruction` is set on export, or an
-    ///   override/variant names a `field_id` that is not on the document.
+    /// - `invalid_input` if `doc_ids` is empty; `ai_instruction` is set on export or
+    ///   missing/empty/over 4000 chars on `share_to_ai`; `recipient_note` is set on
+    ///   `share_to_ai`; or an override/variant names a `field_id` that is not on the
+    ///   document.
     /// - `not_found` / `not_approved` per document; `not_found` if `applied_variant_ids`
     ///   names a variant that does not exist on that document.
-    /// - `cloud_ai_not_configured` for `share_to_ai` (W27).
+    /// - `cloud_ai_not_configured` for `share_to_ai` with no stored secret.
     pub fn preview_share(&mut self, input: PreviewShareIn) -> Result<SharePreview, ApiError> {
         if !command_allowed("preview_share", self.state()) {
             return Err(ApiError::not_in_session());
         }
         let request = input.request;
         match request.kind {
-            ShareKind::ShareToAi => return Err(ApiError::cloud_ai_not_configured()),
-            ShareKind::ExportToPerson => {}
-        }
-        if request.ai_instruction.is_some() {
-            return Err(ApiError::invalid_input(
-                "ai_instruction must be null for export_to_person",
-            ));
+            ShareKind::ExportToPerson => {
+                if request.ai_instruction.is_some() {
+                    return Err(ApiError::invalid_input(
+                        "ai_instruction must be null for export_to_person",
+                    ));
+                }
+            }
+            ShareKind::ShareToAi => {
+                if request.recipient_note.is_some() {
+                    return Err(ApiError::invalid_input(
+                        "recipient_note must be null for share_to_ai",
+                    ));
+                }
+                let instruction_chars = request
+                    .ai_instruction
+                    .as_deref()
+                    .map_or(0, |s| s.chars().count());
+                if instruction_chars == 0 || instruction_chars > MAX_AI_INSTRUCTION_CHARS {
+                    return Err(ApiError::invalid_input(
+                        "ai_instruction must be 1..=4000 characters for share_to_ai",
+                    ));
+                }
+                // api.md §5.6: fail closed before assembling a send, and before any
+                // document is loaded below.
+                let open = self.require_open()?;
+                self.cloud_ai
+                    .load(&open.master)
+                    .map_err(map_cloud_ai_err)?
+                    .ok_or_else(ApiError::cloud_ai_not_configured)?;
+            }
         }
         if request.doc_ids.is_empty() {
             return Err(ApiError::invalid_input("doc_ids must not be empty"));
@@ -2626,43 +2869,87 @@ impl SessionManager {
                 pages.extend(redacted_content.pages);
             }
         }
-        let filename = crate::share::suggested_filename(&filenames, now);
-        let pdf_bytes = crate::share::assemble_export_pdf(&pages, &filename, now);
         let token = uuid::Uuid::new_v4().to_string();
         let expires_at_unix_ms = now.saturating_add(crate::share::preview_ttl_ms());
         let expires_at = crate::account::format_rfc3339((expires_at_unix_ms / 1000) as i64);
-        let preview = SharePreview {
-            preview_token: token.clone(),
-            expires_at,
-            kind: ShareKind::ExportToPerson,
-            overrides_in_effect,
-            suggested_filename: Some(filename.clone()),
-            pdf_bytes: Some(pdf_bytes.clone()),
-            ai_payload_preview: None,
-            manifest,
-            no_originals_left_device: no_originals.clone(),
-        };
-        if let Some(open) = self.open.as_mut() {
-            open.preview = Some(LivePreview {
-                token,
-                expires_at_unix_ms,
-                kind: ShareKind::ExportToPerson,
-                pdf_bytes,
-                suggested_filename: filename,
-                doc_ids: request.doc_ids,
-                recipient_note: request.recipient_note,
-                no_originals_left_device: no_originals,
-            });
+        match request.kind {
+            ShareKind::ExportToPerson => {
+                let filename = crate::share::suggested_filename(&filenames, now);
+                let pdf_bytes = crate::share::assemble_export_pdf(&pages, &filename, now);
+                let preview = SharePreview {
+                    preview_token: token.clone(),
+                    expires_at,
+                    kind: ShareKind::ExportToPerson,
+                    overrides_in_effect,
+                    suggested_filename: Some(filename.clone()),
+                    pdf_bytes: Some(pdf_bytes.clone()),
+                    ai_payload_preview: None,
+                    manifest,
+                    no_originals_left_device: no_originals.clone(),
+                };
+                if let Some(open) = self.open.as_mut() {
+                    open.preview = Some(LivePreview {
+                        token,
+                        expires_at_unix_ms,
+                        kind: ShareKind::ExportToPerson,
+                        pdf_bytes: Some(pdf_bytes),
+                        suggested_filename: Some(filename),
+                        ai_payload: None,
+                        ai_instruction: None,
+                        doc_ids: request.doc_ids,
+                        recipient_note: request.recipient_note,
+                        no_originals_left_device: no_originals,
+                    });
+                }
+                Ok(preview)
+            }
+            ShareKind::ShareToAi => {
+                // Same `pages` selection the export branch just fed to the PDF renderer
+                // (testing.md §5.3's gated "code that selects bytes for PDF / HTTP" is one
+                // implementation, not two — see `crate::export::plain_text_from_pages`).
+                let ai_payload = crate::export::plain_text_from_pages(&pages);
+                let instruction = request.ai_instruction.clone().unwrap_or_default();
+                let preview = SharePreview {
+                    preview_token: token.clone(),
+                    expires_at,
+                    kind: ShareKind::ShareToAi,
+                    overrides_in_effect,
+                    suggested_filename: None,
+                    pdf_bytes: None,
+                    ai_payload_preview: Some(ai_payload.clone()),
+                    manifest,
+                    no_originals_left_device: no_originals.clone(),
+                };
+                if let Some(open) = self.open.as_mut() {
+                    open.preview = Some(LivePreview {
+                        token,
+                        expires_at_unix_ms,
+                        kind: ShareKind::ShareToAi,
+                        pdf_bytes: None,
+                        suggested_filename: None,
+                        ai_payload: Some(ai_payload),
+                        ai_instruction: Some(instruction),
+                        doc_ids: request.doc_ids,
+                        recipient_note: None,
+                        no_originals_left_device: no_originals,
+                    });
+                }
+                Ok(preview)
+            }
         }
-        Ok(preview)
     }
 
-    /// `commit_share` — api.md §5.6. Returns byte-identical `pdf_bytes` and appends audit
-    /// `share`. Drops the token.
+    /// `commit_share` — api.md §5.6. Export: byte-identical `pdf_bytes`. AI: POSTs the
+    /// exact `ai_payload_preview` body (architecture §9.2) and returns the model's
+    /// read-only output text. Appends audit `share` either way — for AI, **even on a
+    /// failed send** (dev-plan W27 "Failed HTTP still audits attempt"). Drops the token on
+    /// success or definitive failure (api.md §5.6); only `preview_expired` leaves it live.
     ///
     /// # Errors
     /// - `not_in_session` unless unlocked.
     /// - `preview_expired` if the token is missing, replaced, or past TTL.
+    /// - AI kind: `cloud_ai_not_configured` (secret cleared since preview),
+    ///   `cloud_ai_network`, or `cloud_ai_refused`.
     pub fn commit_share(&mut self, input: CommitShareIn) -> Result<CommitShareOut, ApiError> {
         if !command_allowed("commit_share", self.state()) {
             return Err(ApiError::not_in_session());
@@ -2676,9 +2963,22 @@ impl SessionManager {
         if live.token != input.preview_token || now > live.expires_at_unix_ms {
             return Err(ApiError::preview_expired());
         }
-        let kind = live.kind;
-        let pdf_bytes = live.pdf_bytes.clone();
-        let suggested_filename = live.suggested_filename.clone();
+        match live.kind {
+            ShareKind::ExportToPerson => self.commit_export_share(),
+            ShareKind::ShareToAi => self.commit_ai_share(),
+        }
+    }
+
+    /// `commit_share` export path — split out of [`Self::commit_share`] once W27 added a
+    /// second kind. Assumes the caller already validated the live token.
+    fn commit_export_share(&mut self) -> Result<CommitShareOut, ApiError> {
+        let live = self
+            .open
+            .as_ref()
+            .and_then(|o| o.preview.as_ref())
+            .expect("commit_share validated a live preview before dispatching here");
+        let pdf_bytes = live.pdf_bytes.clone().unwrap_or_default();
+        let suggested_filename = live.suggested_filename.clone().unwrap_or_default();
         let doc_ids = live.doc_ids.clone();
         let recipient_note = live.recipient_note.clone();
         let all_no_originals = live.no_originals_left_device.iter().all(|b| *b);
@@ -2708,12 +3008,90 @@ impl SessionManager {
             open.preview = None;
         }
         Ok(CommitShareOut {
-            kind,
+            kind: ShareKind::ExportToPerson,
             pdf_bytes: Some(pdf_bytes),
             suggested_filename: Some(suggested_filename),
             output_text: None,
             audit_event_id,
         })
+    }
+
+    /// `commit_share` AI path (W27). Reloads the Cloud AI secret fresh rather than trusting
+    /// anything cached at `preview_share` time (architecture §9.1: "Readable by the Plugin
+    /// Host only while unlocked, only at invocation") — if it was cleared since the preview
+    /// was issued, that is `cloud_ai_not_configured`, audited like any other failed attempt.
+    fn commit_ai_share(&mut self) -> Result<CommitShareOut, ApiError> {
+        let live = self
+            .open
+            .as_ref()
+            .and_then(|o| o.preview.as_ref())
+            .expect("commit_share validated a live preview before dispatching here");
+        let doc_ids = live.doc_ids.clone();
+        let ai_payload = live.ai_payload.clone().unwrap_or_default();
+        let instruction = live.ai_instruction.clone().unwrap_or_default();
+        let all_no_originals = live.no_originals_left_device.iter().all(|b| *b);
+
+        let open = self.require_open()?;
+        let secret = self.cloud_ai.load(&open.master).map_err(map_cloud_ai_err)?;
+
+        let (endpoint_host, outcome): (Option<String>, Result<String, ErrorCode>) = match &secret {
+            None => (None, Err(ErrorCode::CloudAiNotConfigured)),
+            Some(secret) => {
+                let host = validate_endpoint_url(&secret.endpoint_url).ok();
+                let client = CloudAiClient::new().map_err(ApiError::internal)?;
+                match client.send(secret, &instruction, &ai_payload) {
+                    Ok(resp) => (host, Ok(resp.output_text)),
+                    Err(CloudAiCallError::Network) => (host, Err(ErrorCode::CloudAiNetwork)),
+                    Err(CloudAiCallError::Refused) => (host, Err(ErrorCode::CloudAiRefused)),
+                }
+            }
+        };
+
+        let error_class = match &outcome {
+            Ok(_) => None,
+            Err(code) => Some(code.as_str()),
+        };
+        let flag = if all_no_originals {
+            OriginalsFlag::True
+        } else {
+            OriginalsFlag::False
+        };
+        let payload = serde_json::json!({
+            "kind": "share_to_ai",
+            "recipient_note": null,
+            "endpoint_host": endpoint_host,
+            "doc_ids": doc_ids,
+            "error_class": error_class,
+            "has_ai_instruction": true,
+        });
+        let payload_jcs = serde_json::to_string(&payload)
+            .map_err(|_| ApiError::internal("audit payload encode failed"))?;
+        let audit_doc = if doc_ids.len() == 1 {
+            Some(doc_ids[0].as_str())
+        } else {
+            None
+        };
+        self.record_audit_append(EventType::Share, audit_doc, flag, &payload_jcs)?;
+        let audit_event_id = self.require_open()?.live_head.sequence;
+        // api.md §5.6: "Drops the token after success or definitive failure" — both
+        // branches below are definitive; only `preview_expired` (checked before this
+        // method runs) leaves the token live.
+        if let Some(open) = self.open.as_mut() {
+            open.preview = None;
+        }
+        match outcome {
+            Ok(output_text) => Ok(CommitShareOut {
+                kind: ShareKind::ShareToAi,
+                pdf_bytes: None,
+                suggested_filename: None,
+                output_text: Some(output_text),
+                audit_event_id,
+            }),
+            Err(ErrorCode::CloudAiNotConfigured) => Err(ApiError::cloud_ai_not_configured()),
+            Err(ErrorCode::CloudAiNetwork) => Err(ApiError::cloud_ai_network()),
+            Err(ErrorCode::CloudAiRefused) => Err(ApiError::cloud_ai_refused()),
+            Err(_) => Err(ApiError::internal("unexpected cloud ai error class")),
+        }
     }
 
     /// Test helper: force the live preview past TTL (api.md 10-minute expiry).
@@ -2895,6 +3273,11 @@ fn map_vault_err(_: VaultError) -> ApiError {
 /// every other error mapper here.
 fn map_config_err(_: ConfigError) -> ApiError {
     ApiError::internal("config backend failure")
+}
+
+/// W27: Cloud AI secret backend failures are `internal`, non-secret classes.
+fn map_cloud_ai_err(_: CloudAiError) -> ApiError {
+    ApiError::internal("cloud ai backend failure")
 }
 
 /// W5/W10: audit backend failures are `internal`, non-secret classes.

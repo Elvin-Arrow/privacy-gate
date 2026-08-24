@@ -41,11 +41,16 @@
 //! - [`export`] — from-scratch PDF writer from `redacted_content` (W23, architecture §11).
 //! - [`share`] — export filename + PDF assembly (W24); preview/commit commands live on
 //!   [`session`].
+//! - [`cloud_ai`] — the Cloud AI plugin (W27, architecture §8–§9): envelope-encrypted
+//!   `CloudAiSecret` storage (kind=5) and the Rust-side-only HTTP client
+//!   [`cloud_ai::CloudAiClient`]. `cloud_ai_set_config` / `get` / `clear` / `test` and the
+//!   `share_to_ai` branch of `preview_share`/`commit_share` live on [`session`].
 
 pub mod account;
 pub mod api;
 pub mod audit;
 pub mod catalog;
+pub mod cloud_ai;
 pub mod config;
 pub mod crypto;
 pub mod detector;
