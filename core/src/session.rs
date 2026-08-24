@@ -2505,12 +2505,16 @@ impl SessionManager {
     /// `preview_share` — api.md §5.6; person-export only in W24 (Cloud AI is W27).
     ///
     /// Materialises the redacted PDF in RAM and issues a one-live-token preview. A second
-    /// preview replaces the first. Overrides/variants are ignored until W26.
+    /// preview replaces the first. W26: `per_doc_overrides` / `applied_variant_ids` are
+    /// applied ephemerally to `redacted_content` for this preview only — the canonical
+    /// `ApprovedVersion` in the Vault is never touched (FR-5.4, C-DES-5).
     ///
     /// # Errors
     /// - `not_in_session` unless unlocked.
-    /// - `invalid_input` if `doc_ids` is empty or `ai_instruction` is set on export.
-    /// - `not_found` / `not_approved` per document.
+    /// - `invalid_input` if `doc_ids` is empty, `ai_instruction` is set on export, or an
+    ///   override/variant names a `field_id` that is not on the document.
+    /// - `not_found` / `not_approved` per document; `not_found` if `applied_variant_ids`
+    ///   names a variant that does not exist on that document.
     /// - `cloud_ai_not_configured` for `share_to_ai` (W27).
     pub fn preview_share(&mut self, input: PreviewShareIn) -> Result<SharePreview, ApiError> {
         if !command_allowed("preview_share", self.state()) {
@@ -2534,6 +2538,7 @@ impl SessionManager {
         let mut filenames = Vec::new();
         let mut manifest = Vec::new();
         let mut no_originals = Vec::new();
+        let mut overrides_in_effect = false;
         {
             let open = self.require_open()?;
             for doc_id in &request.doc_ids {
@@ -2547,10 +2552,64 @@ impl SessionManager {
                     .load_approved(&open.master, doc_id)
                     .map_err(map_catalog_err)?
                     .ok_or_else(ApiError::not_approved)?;
+
+                let known: HashSet<&str> = approved
+                    .decisions
+                    .iter()
+                    .map(|d| d.field.id.as_str())
+                    .collect();
+                let canonical: HashMap<crate::catalog::FieldId, crate::catalog::FieldDecisionKind> = approved
+                    .decisions
+                    .iter()
+                    .map(|d| (d.field.id.clone(), d.decision))
+                    .collect();
+                let mut effective = canonical.clone();
+                let mut doc_override_used = false;
+
+                if let Some(variant_id) = request.applied_variant_ids.get(doc_id) {
+                    let variant = self
+                        .documents
+                        .load_variant(&open.master, doc_id, variant_id)
+                        .map_err(map_catalog_err)?
+                        .ok_or_else(ApiError::not_found)?;
+                    for o in &variant.overrides {
+                        if !known.contains(o.field_id.as_str()) {
+                            return Err(ApiError::invalid_input("unknown field_id in variant"));
+                        }
+                        effective.insert(o.field_id.clone(), o.decision);
+                    }
+                    doc_override_used = true;
+                }
+                if let Some(ad_hoc) = request.per_doc_overrides.get(doc_id) {
+                    if !ad_hoc.is_empty() {
+                        doc_override_used = true;
+                    }
+                    for o in ad_hoc {
+                        if !known.contains(o.field_id.as_str()) {
+                            return Err(ApiError::invalid_input(
+                                "unknown field_id in per_doc_overrides",
+                            ));
+                        }
+                        effective.insert(o.field_id.clone(), o.decision);
+                    }
+                }
+                overrides_in_effect = overrides_in_effect || doc_override_used;
+
+                let redacted_content = if effective == canonical {
+                    approved.redacted_content.clone()
+                } else {
+                    crate::overlap::redact_with_overrides(
+                        &approved.decisions,
+                        &approved.redacted_content,
+                        &effective,
+                    )
+                };
+
                 let mut visible = Vec::new();
                 let mut redacted = Vec::new();
                 for d in &approved.decisions {
-                    match d.decision {
+                    let decision = effective.get(&d.field.id).copied().unwrap_or(d.decision);
+                    match decision {
                         crate::catalog::FieldDecisionKind::KeepVisible => {
                             visible.push(d.field.id.clone())
                         }
@@ -2564,7 +2623,7 @@ impl SessionManager {
                 });
                 no_originals.push(true);
                 filenames.push(meta.source_filename);
-                pages.extend(approved.redacted_content.pages);
+                pages.extend(redacted_content.pages);
             }
         }
         let filename = crate::share::suggested_filename(&filenames, now);
@@ -2576,7 +2635,7 @@ impl SessionManager {
             preview_token: token.clone(),
             expires_at,
             kind: ShareKind::ExportToPerson,
-            overrides_in_effect: false,
+            overrides_in_effect,
             suggested_filename: Some(filename.clone()),
             pdf_bytes: Some(pdf_bytes.clone()),
             ai_payload_preview: None,

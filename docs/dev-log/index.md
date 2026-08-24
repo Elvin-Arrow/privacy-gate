@@ -44,6 +44,7 @@ diary. Each entry links to affected specs and decisions.
 - [0035-w23-pdf-rerender](./0035-w23-pdf-rerender.md) — W23: from-scratch PDF writer from `redacted_content`; redacted canary absent; no `/Prev`. Share preview is W24.
 - [0036-w24-share-export](./0036-w24-share-export.md) — W24: `preview_share` / `commit_share` person-export; byte-identical commit; filename + info dict. OQ-6 oracle is W25.
 - [0037-w25-oq6-oracle](./0037-w25-oq6-oracle.md) — W25: OQ-6 egress oracle + FlateDecode self-test; person-export uses the oracle. Overrides are W26.
+- [0038-w26-overrides](./0038-w26-overrides.md) — W26: `preview_share` applies `per_doc_overrides` / `applied_variant_ids` ephemerally via `overlap::redact_with_overrides`; canonical `ApprovedVersion` untouched; `overrides_in_effect`. Cloud AI plugin is W27.
 
 ## Navigation
 

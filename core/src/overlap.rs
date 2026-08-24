@@ -10,8 +10,10 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::catalog::{DetectedField, FieldDecisionKind, FieldId, RedactedDocument, RedactedPage};
-use crate::importer::{Document, TextSpan};
+use crate::catalog::{
+    DetectedField, FieldDecision, FieldDecisionKind, FieldId, RedactedDocument, RedactedPage,
+};
+use crate::importer::{Document, Page, SourceFormat, TextSpan};
 
 /// Half-open `[start, end)` ranges that must be omitted from export (design §3.5 last
 /// bullet). Adjacent redacted bytes are merged.
@@ -132,10 +134,22 @@ pub fn redact_document(
     fields: &[DetectedField],
     decisions: &HashMap<FieldId, FieldDecisionKind>,
 ) -> RedactedDocument {
-    let doc_len = content_len(doc);
+    redact_pages(doc.source_format, &doc.pages, fields, decisions)
+}
+
+/// The page-content core of [`redact_document`], taking pages directly rather than a full
+/// [`Document`] — the W26 override path (see [`redact_with_overrides`]) has no
+/// `Document::raw_bytes` to reconstruct, only page spans.
+#[must_use]
+pub fn redact_pages(
+    format: SourceFormat,
+    pages: &[Page],
+    fields: &[DetectedField],
+    decisions: &HashMap<FieldId, FieldDecisionKind>,
+) -> RedactedDocument {
+    let doc_len = content_len(pages);
     let ranges = redacted_ranges(doc_len, fields, decisions);
-    let pages = doc
-        .pages
+    let out_pages = pages
         .iter()
         .enumerate()
         .map(|(i, page)| {
@@ -152,13 +166,98 @@ pub fn redact_document(
         })
         .collect();
     RedactedDocument {
-        format: doc.source_format,
-        pages,
+        format,
+        pages: out_pages,
     }
 }
 
-fn content_len(doc: &Document) -> u64 {
-    doc.pages
+/// W26 (FR-5.4 / FR-6.2): re-render `redacted_content` for a share with a different
+/// (ephemeral) decision set than the canonical `ApprovedVersion` — without mutating the
+/// canonical version and without needing the discarded original `Document`.
+///
+/// This is possible because every `FieldDecision` snapshot in `ApprovedVersion.decisions`
+/// keeps that field's own span *text*, redacted or not (that is what "reveal more" at
+/// share time needs, since the retained original may not exist — design §3.2/§3.4). The
+/// canonical `redacted_content` already carries the correctly-kept bytes for offsets
+/// nothing canonically redacted; this reconstructs only the byte ranges the canonical
+/// decisions cut, by slicing them back out of the covering field's stored text, then
+/// re-applies [`redact_pages`] with `effective_decisions` — the *same* precedence rule
+/// `submit_approval` used, not a second policy.
+#[must_use]
+pub fn redact_with_overrides(
+    canonical: &[FieldDecision],
+    redacted_content: &RedactedDocument,
+    effective_decisions: &HashMap<FieldId, FieldDecisionKind>,
+) -> RedactedDocument {
+    let fields: Vec<DetectedField> = canonical.iter().map(|d| d.field.clone()).collect();
+    let canonical_map: HashMap<FieldId, FieldDecisionKind> = canonical
+        .iter()
+        .map(|d| (d.field.id.clone(), d.decision))
+        .collect();
+
+    let fields_len = fields
+        .iter()
+        .map(|f| f.span.byte_offset.saturating_add(f.span.byte_length))
+        .max()
+        .unwrap_or(0);
+    let kept_len = redacted_content
+        .pages
+        .iter()
+        .flat_map(|p| &p.spans)
+        .map(|s| s.byte_offset.saturating_add(s.byte_length))
+        .max()
+        .unwrap_or(0);
+    let doc_len = fields_len.max(kept_len);
+
+    let cut_ranges = redacted_ranges(doc_len, &fields, &canonical_map);
+    let mut recovered: HashMap<u32, Vec<TextSpan>> = HashMap::new();
+    for (rs, re) in cut_ranges {
+        // Every cut range is, by construction of `redacted_ranges`, fully covered by at
+        // least one decided field — pick the smallest (most specific) covering field so a
+        // nested reveal recovers exactly that field's own text.
+        let covering = fields
+            .iter()
+            .filter(|f| {
+                f.span.byte_offset <= rs
+                    && re <= f.span.byte_offset.saturating_add(f.span.byte_length)
+            })
+            .min_by_key(|f| f.span.byte_length);
+        let Some(field) = covering else {
+            // Should not happen: `redacted_ranges` only cuts offsets a decided field
+            // covers. Skip rather than fabricate text for an unrecoverable gap.
+            continue;
+        };
+        let rel_from = (rs - field.span.byte_offset) as usize;
+        let rel_to = (re - field.span.byte_offset) as usize;
+        let Some(text) = field.span.text.get(rel_from..rel_to) else {
+            continue;
+        };
+        recovered.entry(field.span.page_index).or_default().push(TextSpan {
+            byte_offset: rs,
+            byte_length: re - rs,
+            text: text.to_string(),
+            page_index: field.span.page_index,
+        });
+    }
+
+    let pages: Vec<Page> = redacted_content
+        .pages
+        .iter()
+        .map(|rp| {
+            let mut spans = rp.spans.clone();
+            if let Some(extra) = recovered.get(&rp.page_index) {
+                spans.extend(extra.iter().cloned());
+            }
+            spans.sort_by_key(|s| s.byte_offset);
+            Page { spans }
+        })
+        .collect();
+
+    redact_pages(redacted_content.format, &pages, &fields, effective_decisions)
+}
+
+fn content_len(pages: &[Page]) -> u64 {
+    pages
         .iter()
         .flat_map(|p| &p.spans)
         .map(|s| s.byte_offset.saturating_add(s.byte_length))
