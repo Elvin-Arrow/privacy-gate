@@ -25,7 +25,7 @@ files from core; save dialog (W34).
   commit, filename, redacted canary absent, no Author / display name in metadata.
 - `cargo test -p pg-core` green; `cargo clippy -p pg-core -- -D warnings` clean.
 
-Next: W25 — OQ-6 egress oracle.
+Next: W26 — ephemeral overrides + variants on share.
 
 ## Related Documentation
 

@@ -10,6 +10,8 @@
 //! Seam: [`SessionManager::preview_share`] / [`SessionManager::commit_share`].
 //! Explicitly **not**: Cloud AI (W27); ephemeral overrides (W26); save dialog (W34).
 
+mod common;
+
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -203,11 +205,8 @@ fn commit_bytes_match_preview_and_audit_share() {
         .preview_share(export_request(vec![doc_id.clone()]))
         .expect("preview");
     let pdf = preview.pdf_bytes.expect("export pdf");
-    assert!(
-        !pdf.windows(b"PG-CANARY-X1".len())
-            .any(|w| w == b"PG-CANARY-X1"),
-        "redacted canary must not appear in preview bytes"
-    );
+    common::oracle::check(&pdf, &["PG-CANARY-X1"], &["PG-CANARY-X2"])
+        .expect("W25 OQ-6 oracle on canonical person-export");
     let extracted = pdf_extract::extract_text_from_mem(&pdf).expect("extract");
     assert!(extracted.contains("PG-CANARY-X2"), "{extracted:?}");
     assert!(!extracted.contains("PG-CANARY-X1"), "{extracted:?}");

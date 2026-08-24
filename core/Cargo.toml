@@ -76,3 +76,5 @@ serde_json = "1.0"
 lopdf = "0.36"
 # W17: property tests for the design §3.5 overlap rule (testing.md §8).
 proptest = "1"
+# W25: inflate FlateDecode streams in the OQ-6 oracle self-test.
+flate2 = "1"
