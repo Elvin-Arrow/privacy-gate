@@ -428,6 +428,11 @@ v1 CI covers macOS, Windows, and Linux (decision 0003). Keystore tests use the m
 OSes plus the real backend when the runner has Keychain / Credential Manager / Secret
 Service. Fallback-file tests are Linux-only.
 
+The ONNX golden + model pin job is [`.github/workflows/nightly.yml`](../../.github/workflows/nightly.yml)
+(`cargo test -p pg-core --test hybrid_w15a`). When `models/ner-pii.onnx` is absent the
+shipped-artifact assertion skips and `NER_PII_ONNX_SHA256` must remain `None`; a present
+file must match that constant. Weights are never fetched at runtime (architecture §4.2).
+
 ---
 
 ## 12. Traceability

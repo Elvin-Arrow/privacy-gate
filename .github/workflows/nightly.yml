@@ -1,0 +1,35 @@
+# Nightly
+
+# testing.md §11: ONNX golden + model pin (nightly / release). Informational skip of
+# the shipped-artifact assertion when `models/ner-pii.onnx` is absent (PRs may skip
+# heavy weights); a vendored file that does not match `NER_PII_ONNX_SHA256` fails.
+
+name: Nightly
+
+on:
+  schedule:
+    - cron: "17 4 * * *"
+  workflow_dispatch:
+
+jobs:
+  onnx-golden:
+    name: ONNX golden + model pin
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config \
+            libssl-dev
+
+      - name: Hybrid fixture goldens and pin check
+        run: cargo test -p pg-core --test hybrid_w15a -- --nocapture

@@ -6,10 +6,11 @@
 //! `SessionManager`'s default, in-process, no network, no model weights (dev-plan W12 "Do
 //! not: ONNX weights in this PR if they bloat CI; stub is enough for AC-1").
 //!
-//! W13 adds [`PatternsUkV1`] (`pg-patterns-uk-v1`) as a second [`Detector`] adapter — the
-//! first stage of the eventual hybrid. It is **not** the import default (dev-plan W13:
-//! "Import still works with stub in unit tests"); `SessionManager::with_detector` selects
-//! it. ONNX / Ollama remain W15.
+//! W13 adds [`PatternsUkV1`] (`pg-patterns-uk-v1`) as the hybrid's deterministic first
+//! stage. W15a adds [`HybridV1`] (`pg-hybrid-v1`) — that pack plus an on-device NER stage
+//! behind a SHA-256 pin ([`verify_model_pin`]). Neither is the import default (dev-plan
+//! W15a: "tests keep stub for AC-1..AC-4"); `SessionManager::with_detector` selects them.
+//! Real GLiNER weights are not in this crate (PR may skip them); Ollama is W15b.
 //!
 //! # What the stub actually does
 //!
@@ -29,19 +30,32 @@
 //! separate plugin-loading mechanism is out of scope for v1 entirely (testing.md §14:
 //! "Third-party plugin / WASM tests → later phase").
 
+mod hybrid;
 mod patterns_uk;
 
+pub use hybrid::{
+    verify_model_pin, HybridV1, NerStage, NerStageError, PinMismatch, HYBRID_V1_ID,
+    NER_PII_ONNX_SHA256,
+};
 pub use patterns_uk::{PatternsUkV1, PATTERNS_UK_V1_ID};
 
 use crate::catalog::DetectedField;
 use crate::importer::{Document, TextSpan};
 
 /// One in-process detection call over an already-imported [`Document`]. The real hosts
-/// (W13's pattern pack, W15a's ONNX, W15b's optional Ollama backend) all implement this
-/// same trait — "the same host-facing trait as `pg-hybrid-v1`" testing.md §10 requires of
-/// the stub is this one.
+/// (W13's pattern pack, W15a's ONNX hybrid, W15b's optional Ollama backend) all implement
+/// this same trait — "the same host-facing trait as `pg-hybrid-v1`" testing.md §10
+/// requires of the stub is this one.
 pub trait Detector: Send + Sync {
+    /// Identity recorded on the audit `detect` event (`data-model.md` / api.md §6).
+    fn id(&self) -> &'static str;
+
     fn detect(&self, doc: &Document) -> Vec<DetectedField>;
+
+    /// Drop in-process NER weights (architecture §10.2). [`crate::session::SessionManager::lock`]
+    /// always calls this. Default is a no-op; a real ONNX session will override once
+    /// weights are vendored and can be reloaded lazily after the next unlock.
+    fn on_lock(&self) {}
 }
 
 /// The W10-era placeholder: no network, no model, no fields, ever. Kept for tests that
@@ -51,6 +65,10 @@ pub trait Detector: Send + Sync {
 pub struct NullDetector;
 
 impl Detector for NullDetector {
+    fn id(&self) -> &'static str {
+        "pg-null-v1"
+    }
+
     fn detect(&self, _doc: &Document) -> Vec<DetectedField> {
         Vec::new()
     }
@@ -71,6 +89,10 @@ pub const STUB_CANARY_MARKER: &str = "PG-CANARY-";
 pub struct StubDetector;
 
 impl Detector for StubDetector {
+    fn id(&self) -> &'static str {
+        STUB_DETECTOR_ID
+    }
+
     fn detect(&self, doc: &Document) -> Vec<DetectedField> {
         let mut fields = Vec::new();
         for page in &doc.pages {

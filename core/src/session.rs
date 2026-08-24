@@ -46,7 +46,7 @@ use crate::catalog::{
     OriginalRecord,
 };
 use crate::config::{ConfigError, ConfigStore, NullConfigStore, RetentionPolicy};
-use crate::detector::{Detector, StubDetector, STUB_DETECTOR_ID};
+use crate::detector::{Detector, StubDetector};
 use crate::importer::{self, SourceFormat};
 use crate::keys::{unwrap_master_key, wrap_master_key, VaultMasterKey, KEY_LEN};
 use crate::keystore::{
@@ -1082,6 +1082,10 @@ impl SessionManager {
         // W3: "close the DB" (architecture §3.3's lock contract) — the SQLCipher
         // connection, and whatever key material SQLCipher itself holds, goes with it.
         self.vault.close();
+        // architecture §10.2: unload in-process NER on lock. No-op until a detector
+        // actually holds weights (W15a's HybridV1 uses a fixture stage with no ONNX
+        // session yet).
+        self.detector.on_lock();
         debug_assert!(!self.has_resident_key_material());
         Ok(LockOut {
             state: SessionState::Locked,
@@ -1380,11 +1384,11 @@ impl SessionManager {
 
         // design §2.2: "Emit a detect event to the Audit Trail with the detected fields
         // and classifications." data-model §5.8.1's Detect payload also has
-        // `backend`/`model_tag`/`fallback_reason` — all `null` for the stub, since none of
-        // "onnx"/"ollama"/a fallback reason applies until W15a/W15b/W15c pick a real
-        // backend.
+        // `backend`/`model_tag`/`fallback_reason` — all `null` until W15c's selection
+        // path fills them. `detector_id` is whatever host `with_detector` installed
+        // (default remains the W12 stub).
         let detect_payload = serde_json::json!({
-            "detector_id": STUB_DETECTOR_ID,
+            "detector_id": self.detector.id(),
             "field_ids": field_ids,
             "labels": labels,
             "backend": null,

@@ -29,6 +29,10 @@ const CLASSIFICATION: &str = "structured_identifier";
 pub struct PatternsUkV1;
 
 impl Detector for PatternsUkV1 {
+    fn id(&self) -> &'static str {
+        PATTERNS_UK_V1_ID
+    }
+
     fn detect(&self, doc: &Document) -> Vec<DetectedField> {
         let mut fields = Vec::new();
         for page in &doc.pages {

@@ -36,3 +36,8 @@ Cargo.lock
 # OS
 Thumbs.db
 Desktop.ini
+
+# Detector ONNX weights (architecture §4.2). Nightly/release may vendor them;
+# PRs may skip (testing.md). Pin lives in core/src/detector/hybrid.rs
+# (`NER_PII_ONNX_SHA256`) and models/README.md — never fetched at runtime.
+models/*.onnx

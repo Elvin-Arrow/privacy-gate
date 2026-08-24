@@ -58,6 +58,10 @@ struct ProbeDetector {
 }
 
 impl Detector for ProbeDetector {
+    fn id(&self) -> &'static str {
+        "pg-probe-v1"
+    }
+
     fn detect(&self, doc: &Document) -> Vec<DetectedField> {
         let faked = self
             .sink
