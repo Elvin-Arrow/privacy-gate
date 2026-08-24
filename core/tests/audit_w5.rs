@@ -493,6 +493,7 @@ fn degraded_session_cannot_reach_unimplemented_document_commands() {
         "submit_approval",
         "abort_approval",
         "delete_document",
+        "delete_retained_original",
         "preview_share",
         "commit_share",
     ] {

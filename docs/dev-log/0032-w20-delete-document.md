@@ -28,7 +28,7 @@ Per the [agent roster](../agent-roster.md), W20 is Opus tier (gated DEK destroy)
   original unreadable; audit `delete`.
 - `cargo test -p pg-core` green; `cargo clippy -p pg-core -- -D warnings` clean.
 
-Next: W21 — `delete_retained_original`.
+Next: W22 — variants.
 
 ## Related Documentation
 

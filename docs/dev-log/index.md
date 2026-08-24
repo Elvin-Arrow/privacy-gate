@@ -39,6 +39,7 @@ diary. Each entry links to affected specs and decisions.
 - [0030-w18-submit-approval](./0030-w18-submit-approval.md) — W18: `submit_approval` writes canonical `ApprovedVersion` (kind=1 `redacted_content`); discard RAM original; audit `approve`; `already_approved`. Abort is W19.
 - [0031-w19-abort-lock](./0031-w19-abort-lock.md) — W19: `abort_approval` and lock vs retention; discard unapproved rows dropped; retain may reopen. Delete is W20.
 - [0032-w20-delete-document](./0032-w20-delete-document.md) — W20: `delete_document` overwrite-and-drop wrapped DEKs; audit `delete`. `delete_retained_original` is W21.
+- [0033-w21-delete-original](./0033-w21-delete-original.md) — W21: `delete_retained_original` idempotent; audit `discard_original` only when one existed. Variants are W22.
 
 ## Navigation
 

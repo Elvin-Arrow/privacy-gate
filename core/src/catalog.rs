@@ -264,6 +264,14 @@ pub trait DocumentStore: Send + Sync {
     /// # Errors
     /// [`CatalogError::Backend`] on I/O/backend failure.
     fn destroy_document(&self, doc_id: &str) -> Result<(), CatalogError>;
+
+    /// Overwrite-and-drop the retained original only (architecture §4.3). Leaves the
+    /// catalog row and approved artifact. Returns whether an original was present.
+    /// No-op (`Ok(false)`) if `doc_id` is missing or already has no original.
+    ///
+    /// # Errors
+    /// [`CatalogError::Backend`] on I/O/backend failure.
+    fn destroy_original(&self, doc_id: &str) -> Result<bool, CatalogError>;
 }
 
 /// The W2–W9-era no-op backend. Exists so every constructor that predates W10 keeps
@@ -320,6 +328,9 @@ impl DocumentStore for NullDocumentStore {
         Err(CatalogError::Backend("no document store configured"))
     }
     fn destroy_document(&self, _doc_id: &str) -> Result<(), CatalogError> {
+        Err(CatalogError::Backend("no document store configured"))
+    }
+    fn destroy_original(&self, _doc_id: &str) -> Result<bool, CatalogError> {
         Err(CatalogError::Backend("no document store configured"))
     }
 }

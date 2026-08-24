@@ -974,6 +974,11 @@ impl DocumentStore for SqlCipherVault {
         self.with_conn_mut(|conn| destroy_document_in_tx(conn, doc_id))
             .map_err(catalog_err)
     }
+
+    fn destroy_original(&self, doc_id: &str) -> Result<bool, CatalogError> {
+        self.with_conn_mut(|conn| destroy_original_in_tx(conn, doc_id))
+            .map_err(catalog_err)
+    }
 }
 
 /// architecture §4.3 step 1: overwrite wrapped DEK / nonce / ciphertext in place.
@@ -1062,6 +1067,35 @@ fn destroy_document_in_tx(conn: &mut Connection, doc_id: &str) -> Result<(), Vau
     tx.commit()
         .map_err(|_| VaultError::Backend("destroy_document commit failed"))?;
     Ok(())
+}
+
+fn destroy_original_in_tx(conn: &mut Connection, doc_id: &str) -> Result<bool, VaultError> {
+    let tx = conn
+        .transaction()
+        .map_err(|_| VaultError::Backend("could not start transaction"))?;
+    let original_id: Option<String> = tx
+        .query_row(
+            "SELECT original_artifact_id FROM document WHERE doc_id = ?1",
+            [doc_id],
+            |r| r.get(0),
+        )
+        .optional()
+        .map_err(|_| VaultError::Backend("destroy_original lookup failed"))?
+        .flatten();
+    let Some(artifact_id) = original_id else {
+        return Ok(false);
+    };
+    overwrite_artifact_key_material(&tx, &artifact_id)?;
+    tx.execute(
+        "UPDATE document SET original_artifact_id = NULL WHERE doc_id = ?1",
+        [doc_id],
+    )
+    .map_err(|_| VaultError::Backend("destroy_original unlink failed"))?;
+    tx.execute("DELETE FROM artifact WHERE artifact_id = ?1", [artifact_id])
+        .map_err(|_| VaultError::Backend("destroy_original artifact delete failed"))?;
+    tx.commit()
+        .map_err(|_| VaultError::Backend("destroy_original commit failed"))?;
+    Ok(true)
 }
 
 /// Preserve the real `VaultError` class (same reasoning as `account_store_err`/`audit_err`/

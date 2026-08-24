@@ -230,6 +230,7 @@ const SESSION_TABLE: &[(&str, &[SessionState])] = &[
     ("submit_approval", &[SessionState::Unlocked]),
     ("abort_approval", &[SessionState::Unlocked]),
     ("delete_document", &[SessionState::Unlocked]),
+    ("delete_retained_original", &[SessionState::Unlocked]),
 ];
 
 /// api.md §2: is `command` callable while the session is in `state`? `false` for any
@@ -614,6 +615,18 @@ pub struct DeleteDocumentIn {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DeleteDocumentOut {
     pub ok: bool,
+}
+
+/// `delete_retained_original` In: `{ doc_id }` (api.md §5.3).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeleteRetainedOriginalIn {
+    pub doc_id: String,
+}
+
+/// `delete_retained_original` Out: `{ summary }`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeleteRetainedOriginalOut {
+    pub summary: DocumentSummary,
 }
 
 /// In-process approval session (data-model §5.10). Lives on [`OpenSession`] so lock drops it.
@@ -2153,6 +2166,50 @@ impl SessionManager {
             .map_err(|_| ApiError::internal("audit payload encode failed"))?;
         self.record_audit_append(EventType::Delete, Some(&doc_id), OriginalsFlag::Unset, &payload_jcs)?;
         Ok(DeleteDocumentOut { ok: true })
+    }
+
+    /// `delete_retained_original` — api.md §5.3; FR-4.6 sibling.
+    ///
+    /// Drops the kind=2 original only. Idempotent if already discarded. Audit
+    /// `discard_original` only when an original was present. Canonical approved bytes are
+    /// untouched.
+    ///
+    /// # Errors
+    /// - `not_in_session` unless unlocked.
+    /// - `not_found` if `doc_id` is unknown.
+    pub fn delete_retained_original(
+        &mut self,
+        input: DeleteRetainedOriginalIn,
+    ) -> Result<DeleteRetainedOriginalOut, ApiError> {
+        if !command_allowed("delete_retained_original", self.state()) {
+            return Err(ApiError::not_in_session());
+        }
+        let doc_id = input.doc_id;
+        let master_present = self
+            .documents
+            .load_meta(&self.require_open()?.master, &doc_id)
+            .map_err(map_catalog_err)?
+            .is_some();
+        if !master_present {
+            return Err(ApiError::not_found());
+        }
+        let had_original = self
+            .documents
+            .destroy_original(&doc_id)
+            .map_err(map_catalog_err)?;
+        if had_original {
+            let payload = serde_json::json!({ "doc_id": doc_id });
+            let payload_jcs = serde_json::to_string(&payload)
+                .map_err(|_| ApiError::internal("audit payload encode failed"))?;
+            self.record_audit_append(
+                EventType::DiscardOriginal,
+                Some(&doc_id),
+                OriginalsFlag::Unset,
+                &payload_jcs,
+            )?;
+        }
+        let summary = self.summarize(&self.require_open()?.master, doc_id)?;
+        Ok(DeleteRetainedOriginalOut { summary })
     }
 
     /// Page IR for approval: this-unlock `pending_bodies`, or a retain original reconstructed
