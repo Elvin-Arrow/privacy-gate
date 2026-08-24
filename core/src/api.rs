@@ -252,6 +252,22 @@ impl ApiError {
         )
     }
 
+    /// api.md §3 / architecture §9.3: Cloud AI HTTP failed (connection, timeout,
+    /// non-success status, or an unparsable response). Never includes the failing host.
+    #[must_use]
+    pub fn cloud_ai_network() -> Self {
+        Self::new(ErrorCode::CloudAiNetwork, "cloud ai request failed")
+    }
+
+    /// api.md §3 / architecture §9.2: a redirect that would change host was refused.
+    #[must_use]
+    pub fn cloud_ai_refused() -> Self {
+        Self::new(
+            ErrorCode::CloudAiRefused,
+            "cloud ai redirected to a different host",
+        )
+    }
+
     /// api.md §3: unexpected core failure; the class is non-secret.
     #[must_use]
     pub fn internal(message: &'static str) -> Self {

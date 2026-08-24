@@ -46,6 +46,7 @@ pub mod account;
 pub mod api;
 pub mod audit;
 pub mod catalog;
+pub mod cloud_ai;
 pub mod config;
 pub mod crypto;
 pub mod detector;

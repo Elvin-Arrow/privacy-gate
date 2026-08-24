@@ -35,6 +35,7 @@ use crate::catalog::{
     ApprovedVersion, CatalogError, DocumentMeta, DocumentStore, OriginalRecord, VariantListRow,
     VariantRecord,
 };
+use crate::cloud_ai::{CloudAiSecret, CloudAiSecretError, PluginSecretStore};
 use crate::config::{Config, ConfigError, ConfigStore};
 use crate::crypto::{WrappedBlob, NONCE_LEN};
 use crate::keys::{VaultMasterKey, KEY_LEN};
@@ -698,6 +699,126 @@ fn config_err(e: VaultError) -> ConfigError {
     match e {
         VaultError::WrongKey => ConfigError::Backend("vault key mismatch"),
         VaultError::Backend(class) => ConfigError::Backend(class),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// PluginSecretStore over the same connection (W27, data-model §5.7/§7). The `plugin_secret`
+// table's single `plugin_id = 'cloud_ai'` row points at the envelope-encrypted `kind=5`
+// artifact (`uq_artifact_cloud_ai`, W3's schema) — the crypto itself
+// (`seal_cloud_ai_secret`/`open_cloud_ai_secret`) lives in `crate::cloud_ai`; this impl only
+// owns getting the right bytes into and out of SQL columns, same shape as `ConfigStore`
+// above but with an explicit `clear` (data-model §8: "Clear = destroy DEK + rows").
+// ---------------------------------------------------------------------------
+
+const PLUGIN_SECRET_KIND: i64 = 5; // `ArtifactKind::PluginSecret as u8`, data-model §6.
+const CLOUD_AI_PLUGIN_ID: &str = "cloud_ai";
+
+impl PluginSecretStore for SqlCipherVault {
+    fn load(&self, master: &VaultMasterKey) -> Result<Option<CloudAiSecret>, CloudAiSecretError> {
+        let row = self
+            .with_conn(|conn| {
+                conn.query_row(
+                    "SELECT a.wrapped_dek, a.nonce, a.ciphertext
+                       FROM plugin_secret p
+                       JOIN artifact a ON a.artifact_id = p.artifact_id
+                      WHERE p.plugin_id = ?1
+                      LIMIT 1",
+                    [CLOUD_AI_PLUGIN_ID],
+                    |r| {
+                        let wrapped_dek: Vec<u8> = r.get(0)?;
+                        let nonce: Vec<u8> = r.get(1)?;
+                        let ciphertext: Vec<u8> = r.get(2)?;
+                        Ok((wrapped_dek, nonce, ciphertext))
+                    },
+                )
+                .optional()
+                .map_err(|_| VaultError::Backend("plugin secret query failed"))
+            })
+            .map_err(plugin_secret_err)?;
+
+        let Some((wrapped_dek_bytes, nonce, ciphertext)) = row else {
+            return Ok(None);
+        };
+        let wrapped_dek = unpack_wrapped_dek(&wrapped_dek_bytes).map_err(plugin_secret_err)?;
+        let artifact_blob = WrappedBlob { nonce, ciphertext };
+        crate::cloud_ai::open_cloud_ai_secret(master, &wrapped_dek, &artifact_blob).map(Some)
+    }
+
+    fn store(&self, master: &VaultMasterKey, secret: &CloudAiSecret) -> Result<(), CloudAiSecretError> {
+        let (wrapped_dek, artifact_blob) = crate::cloud_ai::seal_cloud_ai_secret(master, secret)?;
+        let wrapped_dek_bytes = pack_wrapped_dek(&wrapped_dek);
+        let artifact_id = uuid::Uuid::new_v4().to_string();
+        let created_at_unix_ms = now_unix_ms();
+
+        self.with_conn_mut(|conn| {
+            let tx = conn
+                .transaction()
+                .map_err(|_| VaultError::Backend("could not start transaction"))?;
+            // FK order (data-model §7): the row referencing an artifact must go before the
+            // artifact itself is freed to be replaced.
+            tx.execute(
+                "DELETE FROM plugin_secret WHERE plugin_id = ?1",
+                [CLOUD_AI_PLUGIN_ID],
+            )
+            .map_err(|_| VaultError::Backend("plugin secret delete failed"))?;
+            tx.execute("DELETE FROM artifact WHERE kind = ?1", [PLUGIN_SECRET_KIND])
+                .map_err(|_| VaultError::Backend("plugin secret artifact delete failed"))?;
+            tx.execute(
+                "INSERT INTO artifact
+                    (artifact_id, kind, doc_id, format_version, wrapped_dek, nonce, ciphertext, created_at_unix_ms)
+                 VALUES (?1, ?2, NULL, ?3, ?4, ?5, ?6, ?7)",
+                rusqlite::params![
+                    artifact_id,
+                    PLUGIN_SECRET_KIND,
+                    crate::cloud_ai::CLOUD_AI_FORMAT_VERSION,
+                    wrapped_dek_bytes,
+                    artifact_blob.nonce,
+                    artifact_blob.ciphertext,
+                    created_at_unix_ms,
+                ],
+            )
+            .map_err(|_| VaultError::Backend("plugin secret artifact insert failed"))?;
+            tx.execute(
+                "INSERT INTO plugin_secret (plugin_id, artifact_id) VALUES (?1, ?2)",
+                rusqlite::params![CLOUD_AI_PLUGIN_ID, artifact_id],
+            )
+            .map_err(|_| VaultError::Backend("plugin secret row insert failed"))?;
+            tx.commit()
+                .map_err(|_| VaultError::Backend("plugin secret transaction commit failed"))?;
+            Ok(())
+        })
+        .map_err(plugin_secret_err)
+    }
+
+    fn clear(&self) -> Result<(), CloudAiSecretError> {
+        self.with_conn_mut(|conn| {
+            let tx = conn
+                .transaction()
+                .map_err(|_| VaultError::Backend("could not start transaction"))?;
+            // Cryptographic erasure (architecture §4.3): dropping the wrapped-DEK row makes
+            // its ciphertext permanently unrecoverable — no separate "zeroize" step exists
+            // for a SQL BLOB beyond deleting the row inside a committed transaction.
+            tx.execute(
+                "DELETE FROM plugin_secret WHERE plugin_id = ?1",
+                [CLOUD_AI_PLUGIN_ID],
+            )
+            .map_err(|_| VaultError::Backend("plugin secret delete failed"))?;
+            tx.execute("DELETE FROM artifact WHERE kind = ?1", [PLUGIN_SECRET_KIND])
+                .map_err(|_| VaultError::Backend("plugin secret artifact delete failed"))?;
+            tx.commit()
+                .map_err(|_| VaultError::Backend("plugin secret transaction commit failed"))?;
+            Ok(())
+        })
+        .map_err(plugin_secret_err)
+    }
+}
+
+/// Preserve the real `VaultError` class (same reasoning as `config_err`).
+fn plugin_secret_err(e: VaultError) -> CloudAiSecretError {
+    match e {
+        VaultError::WrongKey => CloudAiSecretError::Backend("vault key mismatch"),
+        VaultError::Backend(class) => CloudAiSecretError::Backend(class),
     }
 }
 

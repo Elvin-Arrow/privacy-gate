@@ -45,6 +45,7 @@ diary. Each entry links to affected specs and decisions.
 - [0036-w24-share-export](./0036-w24-share-export.md) — W24: `preview_share` / `commit_share` person-export; byte-identical commit; filename + info dict. OQ-6 oracle is W25.
 - [0037-w25-oq6-oracle](./0037-w25-oq6-oracle.md) — W25: OQ-6 egress oracle + FlateDecode self-test; person-export uses the oracle. Overrides are W26.
 - [0038-w26-overrides](./0038-w26-overrides.md) — W26: `preview_share` applies `per_doc_overrides` / `applied_variant_ids` ephemerally via `overlap::redact_with_overrides`; canonical `ApprovedVersion` untouched; `overrides_in_effect`. Cloud AI plugin is W27.
+- [0039-w27-cloud-ai](./0039-w27-cloud-ai.md) — W27: Cloud AI plugin (`core/src/cloud_ai.rs`) — `cloud_ai_set_config`/`_get_config`/`_clear_config`/`_test`; `preview_share`/`commit_share` `share_to_ai` kind; Rust-core-only HTTP, host-changing redirects refused, failed sends still audited. TLS-mock gap documented (plain-HTTP mock only, same as W15b's Ollama double). `list_audit_events` is W28.
 
 ## Navigation
 
