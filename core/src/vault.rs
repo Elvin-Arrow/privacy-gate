@@ -31,7 +31,10 @@ use zeroize::Zeroizing;
 
 use crate::account::{AccountStore, AccountStoreError, LocalAccount};
 use crate::audit::{AuditError, AuditRow, AuditStore, EventType, OriginalsFlag};
-use crate::catalog::{ApprovedVersion, CatalogError, DocumentMeta, DocumentStore, OriginalRecord};
+use crate::catalog::{
+    ApprovedVersion, CatalogError, DocumentMeta, DocumentStore, OriginalRecord, VariantListRow,
+    VariantRecord,
+};
 use crate::config::{Config, ConfigError, ConfigStore};
 use crate::crypto::{WrappedBlob, NONCE_LEN};
 use crate::keys::{VaultMasterKey, KEY_LEN};
@@ -706,6 +709,7 @@ fn config_err(e: VaultError) -> ConfigError {
 const DOCUMENT_META_KIND: i64 = 8; // `ArtifactKind::DocumentMeta as u8`, data-model §6.
 const ORIGINAL_KIND: i64 = 2; // `ArtifactKind::Original as u8`, data-model §6.
 const APPROVED_KIND: i64 = 1; // `ArtifactKind::Approved as u8`, data-model §6.
+const VARIANT_KIND: i64 = 3; // `ArtifactKind::Variant as u8`, data-model §6.
 
 impl DocumentStore for SqlCipherVault {
     fn insert(
@@ -979,6 +983,96 @@ impl DocumentStore for SqlCipherVault {
         self.with_conn_mut(|conn| destroy_original_in_tx(conn, doc_id))
             .map_err(catalog_err)
     }
+
+    fn store_variant(
+        &self,
+        master: &VaultMasterKey,
+        doc_id: &str,
+        variant_id: &str,
+        record: &VariantRecord,
+    ) -> Result<(), CatalogError> {
+        let (wrapped_dek, blob) = crate::catalog::seal_variant(master, doc_id, record)?;
+        let artifact_id = uuid::Uuid::new_v4().to_string();
+        self.with_conn_mut(|conn| {
+            store_variant_in_tx(
+                conn,
+                doc_id,
+                variant_id,
+                &record.name,
+                record.created_at_unix_ms,
+                &artifact_id,
+                &wrapped_dek,
+                &blob,
+            )
+        })
+        .map_err(variant_store_err)
+    }
+
+    fn list_variants(&self, doc_id: &str) -> Result<Vec<VariantListRow>, CatalogError> {
+        self.with_conn(|conn| {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT variant_id, name, created_at_unix_ms FROM variant
+                     WHERE doc_id = ?1 ORDER BY created_at_unix_ms DESC",
+                )
+                .map_err(|_| VaultError::Backend("variant list prepare failed"))?;
+            let rows = stmt
+                .query_map([doc_id], |r| {
+                    Ok(VariantListRow {
+                        variant_id: r.get(0)?,
+                        name: r.get(1)?,
+                        created_at_unix_ms: r.get::<_, i64>(2)? as u64,
+                    })
+                })
+                .map_err(|_| VaultError::Backend("variant list query failed"))?
+                .collect::<rusqlite::Result<Vec<_>>>()
+                .map_err(|_| VaultError::Backend("variant list decode failed"))?;
+            Ok(rows)
+        })
+        .map_err(catalog_err)
+    }
+
+    fn load_variant(
+        &self,
+        master: &VaultMasterKey,
+        doc_id: &str,
+        variant_id: &str,
+    ) -> Result<Option<VariantRecord>, CatalogError> {
+        let row = self
+            .with_conn(|conn| {
+                conn.query_row(
+                    "SELECT v.name, a.wrapped_dek, a.nonce, a.ciphertext
+                     FROM variant v JOIN artifact a ON a.artifact_id = v.artifact_id
+                     WHERE v.doc_id = ?1 AND v.variant_id = ?2",
+                    rusqlite::params![doc_id, variant_id],
+                    |r| {
+                        let sql_name: String = r.get(0)?;
+                        let wrapped_dek: Vec<u8> = r.get(1)?;
+                        let nonce: Vec<u8> = r.get(2)?;
+                        let ciphertext: Vec<u8> = r.get(3)?;
+                        Ok((sql_name, wrapped_dek, nonce, ciphertext))
+                    },
+                )
+                .optional()
+                .map_err(|_| VaultError::Backend("variant query failed"))
+            })
+            .map_err(catalog_err)?;
+        let Some((sql_name, wrapped_dek_bytes, nonce, ciphertext)) = row else {
+            return Ok(None);
+        };
+        let wrapped_dek = unpack_wrapped_dek(&wrapped_dek_bytes).map_err(catalog_err)?;
+        let artifact_blob = WrappedBlob { nonce, ciphertext };
+        let record = crate::catalog::open_variant(master, doc_id, &wrapped_dek, &artifact_blob)?;
+        if record.name != sql_name {
+            return Err(CatalogError::Backend("variant name mismatch"));
+        }
+        Ok(Some(record))
+    }
+
+    fn destroy_variant(&self, doc_id: &str, variant_id: &str) -> Result<bool, CatalogError> {
+        self.with_conn_mut(|conn| destroy_variant_in_tx(conn, doc_id, variant_id))
+            .map_err(catalog_err)
+    }
 }
 
 /// architecture §4.3 step 1: overwrite wrapped DEK / nonce / ciphertext in place.
@@ -1098,12 +1192,123 @@ fn destroy_original_in_tx(conn: &mut Connection, doc_id: &str) -> Result<bool, V
     Ok(true)
 }
 
+#[allow(clippy::too_many_arguments)]
+fn store_variant_in_tx(
+    conn: &mut Connection,
+    doc_id: &str,
+    variant_id: &str,
+    name: &str,
+    created_at_unix_ms: u64,
+    artifact_id: &str,
+    wrapped_dek: &WrappedBlob,
+    blob: &WrappedBlob,
+) -> Result<(), VaultError> {
+    let tx = conn
+        .transaction()
+        .map_err(|_| VaultError::Backend("could not start transaction"))?;
+    let approved: Option<Option<String>> = tx
+        .query_row(
+            "SELECT approved_artifact_id FROM document WHERE doc_id = ?1",
+            [doc_id],
+            |r| r.get(0),
+        )
+        .optional()
+        .map_err(|_| VaultError::Backend("variant approved lookup failed"))?;
+    match approved {
+        None => return Err(VaultError::Backend("document not found")),
+        Some(None) => return Err(VaultError::Backend("document has no approved version")),
+        Some(Some(_)) => {}
+    }
+    let taken: i64 = tx
+        .query_row(
+            "SELECT COUNT(*) FROM variant WHERE doc_id = ?1 AND name = ?2",
+            rusqlite::params![doc_id, name],
+            |r| r.get(0),
+        )
+        .map_err(|_| VaultError::Backend("variant name check failed"))?;
+    if taken != 0 {
+        return Err(VaultError::Backend("variant name conflict"));
+    }
+    let artifact_created_at = now_unix_ms();
+    tx.execute(
+        "INSERT INTO artifact
+            (artifact_id, kind, doc_id, format_version, wrapped_dek, nonce, ciphertext, created_at_unix_ms)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        rusqlite::params![
+            artifact_id,
+            VARIANT_KIND,
+            doc_id,
+            crate::catalog::CATALOG_FORMAT_VERSION,
+            pack_wrapped_dek(wrapped_dek),
+            blob.nonce,
+            blob.ciphertext,
+            artifact_created_at,
+        ],
+    )
+    .map_err(|_| VaultError::Backend("variant artifact insert failed"))?;
+    tx.execute(
+        "INSERT INTO variant (variant_id, doc_id, artifact_id, name, created_at_unix_ms)
+         VALUES (?1, ?2, ?3, ?4, ?5)",
+        rusqlite::params![
+            variant_id,
+            doc_id,
+            artifact_id,
+            name,
+            created_at_unix_ms as i64,
+        ],
+    )
+    .map_err(|_| VaultError::Backend("variant insert failed"))?;
+    tx.commit()
+        .map_err(|_| VaultError::Backend("variant transaction commit failed"))?;
+    Ok(())
+}
+
+fn destroy_variant_in_tx(
+    conn: &mut Connection,
+    doc_id: &str,
+    variant_id: &str,
+) -> Result<bool, VaultError> {
+    let tx = conn
+        .transaction()
+        .map_err(|_| VaultError::Backend("could not start transaction"))?;
+    let artifact_id: Option<String> = tx
+        .query_row(
+            "SELECT artifact_id FROM variant WHERE doc_id = ?1 AND variant_id = ?2",
+            rusqlite::params![doc_id, variant_id],
+            |r| r.get(0),
+        )
+        .optional()
+        .map_err(|_| VaultError::Backend("destroy_variant lookup failed"))?;
+    let Some(artifact_id) = artifact_id else {
+        return Ok(false);
+    };
+    overwrite_artifact_key_material(&tx, &artifact_id)?;
+    tx.execute(
+        "DELETE FROM variant WHERE doc_id = ?1 AND variant_id = ?2",
+        rusqlite::params![doc_id, variant_id],
+    )
+    .map_err(|_| VaultError::Backend("destroy_variant row delete failed"))?;
+    tx.execute("DELETE FROM artifact WHERE artifact_id = ?1", [artifact_id])
+        .map_err(|_| VaultError::Backend("destroy_variant artifact delete failed"))?;
+    tx.commit()
+        .map_err(|_| VaultError::Backend("destroy_variant commit failed"))?;
+    Ok(true)
+}
+
 /// Preserve the real `VaultError` class (same reasoning as `account_store_err`/`audit_err`/
 /// `config_err`).
 fn catalog_err(e: VaultError) -> CatalogError {
     match e {
         VaultError::WrongKey => CatalogError::Backend("vault key mismatch"),
         VaultError::Backend(class) => CatalogError::Backend(class),
+    }
+}
+
+fn variant_store_err(e: VaultError) -> CatalogError {
+    match e {
+        VaultError::Backend("variant name conflict") => CatalogError::VariantNameConflict,
+        VaultError::Backend("document has no approved version") => CatalogError::NotApproved,
+        other => catalog_err(other),
     }
 }
 

@@ -40,6 +40,7 @@ diary. Each entry links to affected specs and decisions.
 - [0031-w19-abort-lock](./0031-w19-abort-lock.md) — W19: `abort_approval` and lock vs retention; discard unapproved rows dropped; retain may reopen. Delete is W20.
 - [0032-w20-delete-document](./0032-w20-delete-document.md) — W20: `delete_document` overwrite-and-drop wrapped DEKs; audit `delete`. `delete_retained_original` is W21.
 - [0033-w21-delete-original](./0033-w21-delete-original.md) — W21: `delete_retained_original` idempotent; audit `discard_original` only when one existed. Variants are W22.
+- [0034-w22-variants](./0034-w22-variants.md) — W22: `list_variants` / `get_variant` / `save_variant` / `delete_variant`; per-doc unique name; no span text. PDF re-render is W23.
 
 ## Navigation
 

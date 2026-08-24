@@ -24,7 +24,7 @@ Explicitly **not** in this chunk: variants (W22); changing approved content.
   audit.
 - `cargo test -p pg-core` green; `cargo clippy -p pg-core -- -D warnings` clean.
 
-Next: W22 — variants.
+Next: W23 — PDF re-render (true removal).
 
 ## Related Documentation
 

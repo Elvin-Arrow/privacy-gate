@@ -33,7 +33,9 @@
 //!   one RAM approval session. `submit_approval` (W18) writes the canonical
 //!   `ApprovedVersion` and drops that session. `abort_approval` / lock (W19) drop
 //!   unapproved discard catalog rows; retain may reopen after lock. `delete_document`
-//!   (W20) overwrite-and-drops wrapped DEKs.
+//!   (W20) overwrite-and-drops wrapped DEKs. `delete_retained_original` (W21) drops kind=2
+//!   only. Variants (W22): `list_variants` / `get_variant` / `save_variant` /
+//!   `delete_variant`.
 //! - [`overlap`] — design §3.5 byte-offset redaction (innermost keep; partial overlap
 //!   redact-wins) applied at `submit_approval` (W17/W18).
 

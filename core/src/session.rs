@@ -4,7 +4,8 @@
 //! Includes [`SessionManager::get_detector_preference`] /
 //! [`SessionManager::set_detector_preference`] (W15c), catalog commands (W10), and
 //! [`SessionManager::open_approval`] / [`SessionManager::get_approval_view`] /
-//! [`SessionManager::set_field_decisions`] (W16) / [`SessionManager::submit_approval`] (W18).
+//! [`SessionManager::set_field_decisions`] (W16) / [`SessionManager::submit_approval`] (W18)
+//! / variant commands (W22).
 //!
 //! `dev-plan.md` §1: "**Integration seam for v1 core:** in-process API commands, not the
 //! webview." Tauri IPC wiring is W29; these are the functions it will call.
@@ -43,7 +44,7 @@ use crate::api::{ApiError, ErrorCode};
 use crate::audit::{AuditError, AuditRow, AuditStore, EventType, FailureKind, OriginalsFlag, VerifyOutcome};
 use crate::catalog::{
     ApprovedVersion, CatalogError, DocumentMeta, DocumentStore, EffectiveRetention,
-    FieldDecision, NullDocumentStore, OriginalRecord,
+    FieldDecision, NullDocumentStore, OriginalRecord, VariantOverride, VariantRecord,
 };
 use crate::config::{ConfigError, ConfigStore, DetectorPreference, NullConfigStore, RetentionPolicy};
 use crate::detector::{
@@ -175,9 +176,9 @@ impl core::fmt::Display for SessionState {
 /// state (including before first run)," i.e. it has no gate at all, so it has no row.
 ///
 /// Only commands that exist so far are listed (dev-plan W4 "Do not: implement
-/// gated-but-unwritten commands"). `list_audit_events` and every share/variant
-/// command remain unregistered. Config, catalog, and approval commands that do exist
-/// share api.md §2's generic document/config row: `no | no | yes | no` — unavailable
+/// gated-but-unwritten commands"). `list_audit_events` and every share
+/// command remain unregistered. Config, catalog, variant, and approval commands that do
+/// exist share api.md §2's generic document/config row: `no | no | yes | no` — unavailable
 /// while `degraded_integrity` (C-API-6), unlike `lock`/`get_account`/`get_integrity_report`.
 ///
 /// [`SessionState::DegradedIntegrity`] appears in the table even though no command in this
@@ -231,6 +232,11 @@ const SESSION_TABLE: &[(&str, &[SessionState])] = &[
     ("abort_approval", &[SessionState::Unlocked]),
     ("delete_document", &[SessionState::Unlocked]),
     ("delete_retained_original", &[SessionState::Unlocked]),
+    // W22: api.md §5.5, same generic document row (`no | no | yes | no`).
+    ("list_variants", &[SessionState::Unlocked]),
+    ("get_variant", &[SessionState::Unlocked]),
+    ("save_variant", &[SessionState::Unlocked]),
+    ("delete_variant", &[SessionState::Unlocked]),
 ];
 
 /// api.md §2: is `command` callable while the session is in `state`? `false` for any
@@ -627,6 +633,71 @@ pub struct DeleteRetainedOriginalIn {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DeleteRetainedOriginalOut {
     pub summary: DocumentSummary,
+}
+
+/// `list_variants` In: `{ doc_id }` (api.md §5.5).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ListVariantsIn {
+    pub doc_id: String,
+}
+
+/// One row of `list_variants` / `save_variant` Out (api.md §5.5).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VariantSummary {
+    pub variant_id: String,
+    pub name: String,
+    pub created_at: String,
+}
+
+/// `list_variants` Out: `{ variants }`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ListVariantsOut {
+    pub variants: Vec<VariantSummary>,
+}
+
+/// `get_variant` In: `{ doc_id, variant_id }` (api.md §5.5).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GetVariantIn {
+    pub doc_id: String,
+    pub variant_id: String,
+}
+
+/// `get_variant` Out — overrides are field_id + decision only (C-API-2).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GetVariantOut {
+    pub variant_id: String,
+    pub name: String,
+    pub created_at: String,
+    pub overrides: Vec<FieldDecisionDto>,
+}
+
+/// `save_variant` In (api.md §5.5).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SaveVariantIn {
+    pub doc_id: String,
+    pub name: String,
+    pub overrides: Vec<FieldDecisionDto>,
+}
+
+/// `save_variant` Out: `{ variant_id, name, created_at }`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SaveVariantOut {
+    pub variant_id: String,
+    pub name: String,
+    pub created_at: String,
+}
+
+/// `delete_variant` In: `{ doc_id, variant_id }` (api.md §5.5).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeleteVariantIn {
+    pub doc_id: String,
+    pub variant_id: String,
+}
+
+/// `delete_variant` Out: `{ ok: true }`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeleteVariantOut {
+    pub ok: bool,
 }
 
 /// In-process approval session (data-model §5.10). Lives on [`OpenSession`] so lock drops it.
@@ -2212,6 +2283,142 @@ impl SessionManager {
         Ok(DeleteRetainedOriginalOut { summary })
     }
 
+    /// `list_variants` — api.md §5.5. SQL name cache; no decrypt, no span text.
+    ///
+    /// # Errors
+    /// - `not_in_session` unless unlocked.
+    /// - `not_found` if `doc_id` is unknown.
+    pub fn list_variants(&self, input: ListVariantsIn) -> Result<ListVariantsOut, ApiError> {
+        if !command_allowed("list_variants", self.state()) {
+            return Err(ApiError::not_in_session());
+        }
+        let open = self.require_open()?;
+        let exists = self
+            .documents
+            .load_meta(&open.master, &input.doc_id)
+            .map_err(map_catalog_err)?
+            .is_some();
+        if !exists {
+            return Err(ApiError::not_found());
+        }
+        let rows = self
+            .documents
+            .list_variants(&input.doc_id)
+            .map_err(map_catalog_err)?;
+        let variants = rows
+            .into_iter()
+            .map(|row| VariantSummary {
+                variant_id: row.variant_id,
+                name: row.name,
+                created_at: crate::account::format_rfc3339((row.created_at_unix_ms / 1000) as i64),
+            })
+            .collect();
+        Ok(ListVariantsOut { variants })
+    }
+
+    /// `get_variant` — api.md §5.5. Overrides are field_id + decision only (C-API-2).
+    ///
+    /// # Errors
+    /// - `not_in_session` unless unlocked.
+    /// - `not_found` if `doc_id` / `variant_id` do not match a row.
+    pub fn get_variant(&self, input: GetVariantIn) -> Result<GetVariantOut, ApiError> {
+        if !command_allowed("get_variant", self.state()) {
+            return Err(ApiError::not_in_session());
+        }
+        let open = self.require_open()?;
+        let record = self
+            .documents
+            .load_variant(&open.master, &input.doc_id, &input.variant_id)
+            .map_err(map_catalog_err)?
+            .ok_or_else(ApiError::not_found)?;
+        Ok(GetVariantOut {
+            variant_id: input.variant_id,
+            name: record.name,
+            created_at: crate::account::format_rfc3339((record.created_at_unix_ms / 1000) as i64),
+            overrides: record
+                .overrides
+                .into_iter()
+                .map(|o| FieldDecisionDto {
+                    field_id: o.field_id,
+                    decision: o.decision,
+                })
+                .collect(),
+        })
+    }
+
+    /// `save_variant` — api.md §5.5; C-DM-4 (approved only). No edit-in-place.
+    ///
+    /// # Errors
+    /// - `not_in_session` unless unlocked.
+    /// - `not_found` if `doc_id` is unknown.
+    /// - `not_approved` if there is no canonical `ApprovedVersion`.
+    /// - `invalid_input` if `name` is not 1..=80 chars after trim.
+    /// - `variant_name_conflict` if the name is already used on this document.
+    pub fn save_variant(&self, input: SaveVariantIn) -> Result<SaveVariantOut, ApiError> {
+        if !command_allowed("save_variant", self.state()) {
+            return Err(ApiError::not_in_session());
+        }
+        let open = self.require_open()?;
+        let exists = self
+            .documents
+            .load_meta(&open.master, &input.doc_id)
+            .map_err(map_catalog_err)?
+            .is_some();
+        if !exists {
+            return Err(ApiError::not_found());
+        }
+        if !self
+            .documents
+            .has_approved_version(&input.doc_id)
+            .map_err(map_catalog_err)?
+        {
+            return Err(ApiError::not_approved());
+        }
+        let name = validate_variant_name(&input.name)?;
+        let created_at_unix_ms = now_unix_ms();
+        let variant_id = uuid::Uuid::new_v4().to_string();
+        let record = VariantRecord {
+            name: name.clone(),
+            created_at_unix_ms,
+            overrides: input
+                .overrides
+                .into_iter()
+                .map(|o| VariantOverride {
+                    field_id: o.field_id,
+                    decision: o.decision,
+                })
+                .collect(),
+        };
+        self.documents
+            .store_variant(&open.master, &input.doc_id, &variant_id, &record)
+            .map_err(map_catalog_err)?;
+        Ok(SaveVariantOut {
+            variant_id,
+            name,
+            created_at: crate::account::format_rfc3339((created_at_unix_ms / 1000) as i64),
+        })
+    }
+
+    /// `delete_variant` — api.md §5.5; architecture §4.3 overwrite-and-drop of kind=3.
+    ///
+    /// # Errors
+    /// - `not_in_session` unless unlocked.
+    /// - `not_found` if `doc_id` / `variant_id` do not match a row.
+    pub fn delete_variant(&self, input: DeleteVariantIn) -> Result<DeleteVariantOut, ApiError> {
+        if !command_allowed("delete_variant", self.state()) {
+            return Err(ApiError::not_in_session());
+        }
+        let _open = self.require_open()?;
+        let existed = self
+            .documents
+            .destroy_variant(&input.doc_id, &input.variant_id)
+            .map_err(map_catalog_err)?;
+        if !existed {
+            return Err(ApiError::not_found());
+        }
+        Ok(DeleteVariantOut { ok: true })
+    }
+
     /// Page IR for approval: this-unlock `pending_bodies`, or a retain original reconstructed
     /// from the vault after lock (api.md §5.4: retain may `open_approval` again).
     fn approval_document(&self, doc_id: &str) -> Result<Document, ApiError> {
@@ -2322,6 +2529,18 @@ fn validate_display_name(raw: &str) -> Result<String, ApiError> {
     Ok(trimmed.to_string())
 }
 
+/// api.md §5.5: variant `name` 1..=80 chars, unique per doc (uniqueness is the store's job).
+fn validate_variant_name(raw: &str) -> Result<String, ApiError> {
+    let trimmed = raw.trim();
+    let len = trimmed.chars().count();
+    if len == 0 || len > MAX_DISPLAY_NAME_CHARS {
+        return Err(ApiError::invalid_input(
+            "variant name must be 1 to 80 characters after trimming",
+        ));
+    }
+    Ok(trimmed.to_string())
+}
+
 /// api.md §5.3 `import_document`: "`filename`: basename; path separators rejected
 /// (`invalid_input`)." Rejects both `/` and `\` so a Windows-style path can't smuggle a
 /// separator past a Unix-only check, and rejects empty input.
@@ -2380,8 +2599,12 @@ fn map_audit_err(_: AuditError) -> ApiError {
 }
 
 /// W10: catalog backend failures are `internal`, non-secret classes.
-fn map_catalog_err(_: CatalogError) -> ApiError {
-    ApiError::internal("catalog backend failure")
+fn map_catalog_err(e: CatalogError) -> ApiError {
+    match e {
+        CatalogError::VariantNameConflict => ApiError::variant_name_conflict(),
+        CatalogError::NotApproved => ApiError::not_approved(),
+        CatalogError::Backend(_) => ApiError::internal("catalog backend failure"),
+    }
 }
 
 /// Current Unix time in milliseconds — `DocumentMeta.imported_at_unix_ms` and the audit

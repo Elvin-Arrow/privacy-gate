@@ -174,7 +174,8 @@ canonical `ApprovedVersion` with `redacted_content`; discard RAM original; audit
 `W19` (`abort_approval` and lock vs retention — discard unapproved rows dropped; retain
 may `open_approval` again). `W20` (`delete_document` — overwrite-and-drop wrapped DEKs; audit `delete`).
 `W21` (`delete_retained_original` — idempotent; audit `discard_original` only when one
-existed). `W22` (variants) is next;
+existed). `W22` (`list_variants` / `get_variant` / `save_variant` / `delete_variant` —
+per-doc unique name; `get_variant` has no span text). `W23` (PDF re-render) is next;
 see `docs/dev-plan.md` for the full sequence and `docs/dev-log/` for what each completed
 chunk did and any problems hit along the way.
 

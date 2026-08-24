@@ -219,6 +219,24 @@ impl ApiError {
         )
     }
 
+    /// api.md §3: `save_variant` name already used on this `doc_id`.
+    #[must_use]
+    pub fn variant_name_conflict() -> Self {
+        Self::new(
+            ErrorCode::VariantNameConflict,
+            "a variant with that name already exists on this document",
+        )
+    }
+
+    /// api.md §3: command requires a canonical `ApprovedVersion`.
+    #[must_use]
+    pub fn not_approved() -> Self {
+        Self::new(
+            ErrorCode::NotApproved,
+            "document has no approved version",
+        )
+    }
+
     /// api.md §3: unexpected core failure; the class is non-secret.
     #[must_use]
     pub fn internal(message: &'static str) -> Self {

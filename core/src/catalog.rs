@@ -4,7 +4,8 @@
 //! Delivers `import_document` / `list_documents` / `get_document`'s storage layer: the
 //! `document` SQL row plus its `kind=8` (`document_meta`, always) and `kind=2`
 //! (`original`, iff retention is `retain`) envelope-encrypted artifacts, plus kind=1
-//! (`approved`) after `submit_approval` (W18). Same two-AEAD-layer shape `crate::config`
+//! (`approved`) after `submit_approval` (W18) and kind=3 (`variant`) after `save_variant`
+//! (W22). Same two-AEAD-layer shape `crate::config`
 //! established for `kind=4` — a fresh per-artifact DEK wraps the plaintext,
 //! `vault_master_key` wraps that DEK — except these kinds are **document-scoped**: AADs
 //! carry `doc_id`, unlike `Config`'s global ones.
@@ -82,6 +83,29 @@ pub struct ApprovedVersion {
     pub redacted_content: RedactedDocument,
 }
 
+/// data-model §6.4 `Variant.overrides[]` — `field_id` + decision only (no span text).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VariantOverride {
+    pub field_id: FieldId,
+    pub decision: FieldDecisionKind,
+}
+
+/// data-model §6.4 `Variant` on disk. `variant_id` / `doc_id` are SQL + AAD, not plaintext.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VariantRecord {
+    pub name: String,
+    pub created_at_unix_ms: u64,
+    pub overrides: Vec<VariantOverride>,
+}
+
+/// SQL cache row for `list_variants` (data-model §7: `variant.name` is a cache).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VariantListRow {
+    pub variant_id: String,
+    pub name: String,
+    pub created_at_unix_ms: u64,
+}
+
 /// data-model §6.1: `DocumentMeta.retention` is `"retain" | "discard"` — **never**
 /// `"never_retain"`. A separate type from `crate::config::RetentionPolicy` (which has all
 /// three) rather than a runtime check, so a `never_retain` value here is a compile error,
@@ -153,12 +177,18 @@ impl OriginalRecord {
 #[non_exhaustive]
 pub enum CatalogError {
     Backend(&'static str),
+    /// `UNIQUE(doc_id, name)` (api.md `variant_name_conflict`).
+    VariantNameConflict,
+    /// C-DM-4: variant insert requires a canonical approved artifact.
+    NotApproved,
 }
 
 impl core::fmt::Display for CatalogError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             CatalogError::Backend(class) => write!(f, "catalog backend failure: {class}"),
+            CatalogError::VariantNameConflict => write!(f, "variant name already used on this document"),
+            CatalogError::NotApproved => write!(f, "document has no approved version"),
         }
     }
 }
@@ -272,6 +302,46 @@ pub trait DocumentStore: Send + Sync {
     /// # Errors
     /// [`CatalogError::Backend`] on I/O/backend failure.
     fn destroy_original(&self, doc_id: &str) -> Result<bool, CatalogError>;
+
+    /// Insert kind=3 + `variant` row (data-model §8 / C-DM-4). `variant_id` is caller-minted.
+    ///
+    /// # Errors
+    /// [`CatalogError::NotApproved`] if `doc_id` has no approved artifact;
+    /// [`CatalogError::VariantNameConflict`] if `name` is already used on this doc;
+    /// [`CatalogError::Backend`] on I/O/backend/encrypt failure, or if `doc_id` is missing.
+    fn store_variant(
+        &self,
+        master: &VaultMasterKey,
+        doc_id: &str,
+        variant_id: &str,
+        record: &VariantRecord,
+    ) -> Result<(), CatalogError>;
+
+    /// SQL `variant` rows for `doc_id`, newest first. Empty if the document has none.
+    ///
+    /// # Errors
+    /// [`CatalogError::Backend`] on I/O/backend failure.
+    fn list_variants(&self, doc_id: &str) -> Result<Vec<VariantListRow>, CatalogError>;
+
+    /// Decrypt one variant. `None` if `doc_id`/`variant_id` do not match a row.
+    /// Envelope `name` must match the SQL cache (data-model §7); mismatch is an error,
+    /// not a served row.
+    ///
+    /// # Errors
+    /// [`CatalogError::Backend`] on I/O/backend/decrypt/integrity failure.
+    fn load_variant(
+        &self,
+        master: &VaultMasterKey,
+        doc_id: &str,
+        variant_id: &str,
+    ) -> Result<Option<VariantRecord>, CatalogError>;
+
+    /// Overwrite-and-drop one kind=3 variant (architecture §4.3). Returns whether a
+    /// matching row was present. No-op (`Ok(false)`) if missing.
+    ///
+    /// # Errors
+    /// [`CatalogError::Backend`] on I/O/backend failure.
+    fn destroy_variant(&self, doc_id: &str, variant_id: &str) -> Result<bool, CatalogError>;
 }
 
 /// The W2–W9-era no-op backend. Exists so every constructor that predates W10 keeps
@@ -333,6 +403,29 @@ impl DocumentStore for NullDocumentStore {
     fn destroy_original(&self, _doc_id: &str) -> Result<bool, CatalogError> {
         Err(CatalogError::Backend("no document store configured"))
     }
+    fn store_variant(
+        &self,
+        _master: &VaultMasterKey,
+        _doc_id: &str,
+        _variant_id: &str,
+        _record: &VariantRecord,
+    ) -> Result<(), CatalogError> {
+        Err(CatalogError::Backend("no document store configured"))
+    }
+    fn list_variants(&self, _doc_id: &str) -> Result<Vec<VariantListRow>, CatalogError> {
+        Ok(Vec::new())
+    }
+    fn load_variant(
+        &self,
+        _master: &VaultMasterKey,
+        _doc_id: &str,
+        _variant_id: &str,
+    ) -> Result<Option<VariantRecord>, CatalogError> {
+        Ok(None)
+    }
+    fn destroy_variant(&self, _doc_id: &str, _variant_id: &str) -> Result<bool, CatalogError> {
+        Err(CatalogError::Backend("no document store configured"))
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -355,6 +448,13 @@ pub fn original_plaintext_aad(doc_id: &str) -> Aad {
 #[must_use]
 pub fn approved_plaintext_aad(doc_id: &str) -> Aad {
     Aad::for_document(ArtifactKind::Approved, doc_id, CATALOG_FORMAT_VERSION)
+}
+
+/// AAD for the `variant` plaintext layer (kind 3, document-scoped). `doc_id` is bound
+/// here; `variant_id` lives in SQL (data-model §6.4; architecture §3.1 AAD has one id).
+#[must_use]
+pub fn variant_plaintext_aad(doc_id: &str) -> Aad {
+    Aad::for_document(ArtifactKind::Variant, doc_id, CATALOG_FORMAT_VERSION)
 }
 
 /// AAD for a document-scoped artifact's DEK-wrap layer (kind 7 — data-model §6: "as
@@ -457,6 +557,38 @@ pub fn open_approved(
         wrapped_dek,
         artifact_blob,
         &approved_plaintext_aad(doc_id),
+        &wrap_dek_aad(doc_id),
+    )
+}
+
+/// Seal a [`VariantRecord`]. Same shape as [`seal_approved`], kind 3.
+///
+/// # Errors
+/// Whatever the underlying AEAD wrap calls return (CSPRNG failure).
+pub fn seal_variant(
+    master: &VaultMasterKey,
+    doc_id: &str,
+    record: &VariantRecord,
+) -> Result<(WrappedBlob, WrappedBlob), CatalogError> {
+    seal(master, record, &variant_plaintext_aad(doc_id), &wrap_dek_aad(doc_id))
+}
+
+/// The inverse of [`seal_variant`].
+///
+/// # Errors
+/// [`CatalogError::Backend`] if either AEAD layer fails to authenticate, or the plaintext
+/// is not valid `VariantRecord` JSON.
+pub fn open_variant(
+    master: &VaultMasterKey,
+    doc_id: &str,
+    wrapped_dek: &WrappedBlob,
+    artifact_blob: &WrappedBlob,
+) -> Result<VariantRecord, CatalogError> {
+    open(
+        master,
+        wrapped_dek,
+        artifact_blob,
+        &variant_plaintext_aad(doc_id),
         &wrap_dek_aad(doc_id),
     )
 }
