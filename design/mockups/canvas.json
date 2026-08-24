@@ -1,0 +1,14 @@
+{
+  "artboards": [
+    { "file": "FirstRun.dc.html", "x": -1600, "y": 0, "w": 1440, "h": 900, "title": "First run" },
+    { "file": "Unlock.dc.html", "x": 0, "y": 0, "w": 1440, "h": 900, "title": "Lock / Unlock" },
+    { "file": "Main.dc.html", "x": 1600, "y": 0, "w": 1440, "h": 900, "title": "Vault" },
+    { "file": "RetentionModal.dc.html", "x": 3200, "y": 0, "w": 1440, "h": 900, "title": "First-import retention" },
+    { "file": "DeleteConfirm.dc.html", "x": 3200, "y": 1060, "w": 1440, "h": 900, "title": "Delete confirmation" },
+    { "file": "Approval.dc.html", "x": 4800, "y": 0, "w": 1440, "h": 900, "title": "Approval" },
+    { "file": "SharePreview.dc.html", "x": 6400, "y": 0, "w": 1440, "h": 900, "title": "Share preview" },
+    { "file": "AuditTrail.dc.html", "x": 8000, "y": 0, "w": 1440, "h": 900, "title": "Audit trail" },
+    { "file": "Settings.dc.html", "x": 9600, "y": 0, "w": 1440, "h": 900, "title": "Settings" }
+  ],
+  "launch": { "view": "canvas" }
+}

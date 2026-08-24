@@ -1,0 +1,152 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap">
+  <style>
+:root {
+  --md-primary: oklch(45% 0.15 264);
+  --md-on-primary: oklch(99% 0 0);
+  --md-primary-container: oklch(91% 0.045 264);
+  --md-on-primary-container: oklch(24% 0.09 264);
+  --md-secondary-container: oklch(91% 0.018 264);
+  --md-on-secondary-container: oklch(26% 0.03 264);
+  --md-tertiary-container: oklch(91% 0.05 168);
+  --md-on-tertiary-container: oklch(22% 0.06 168);
+  --md-surface: oklch(98.5% 0.004 264);
+  --md-surface-container-lowest: oklch(100% 0 0);
+  --md-surface-container-low: oklch(97.3% 0.004 264);
+  --md-on-surface: oklch(20% 0.012 264);
+  --md-on-surface-variant: oklch(39% 0.016 264);
+  --md-outline: oklch(56% 0.014 264);
+  --md-outline-variant: oklch(85% 0.008 264);
+  --md-radius-xs: 4px;
+  --md-radius-md: 12px;
+  --md-radius-full: 999px;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--md-surface); color: var(--md-on-surface); font-family: 'Roboto', -apple-system, 'Segoe UI', sans-serif; -webkit-font-smoothing: antialiased; }
+.t-headline-s { font-size: 24px; line-height: 32px; font-weight: 400; }
+.t-body-m { font-size: 14px; line-height: 20px; font-weight: 400; letter-spacing: 0.25px; }
+.t-body-s { font-size: 12px; line-height: 16px; font-weight: 400; letter-spacing: 0.4px; }
+.t-label-m { font-size: 12px; line-height: 16px; font-weight: 500; letter-spacing: 0.5px; }
+.btn-outlined { display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 16px; border-radius: var(--md-radius-full); font-family: inherit; font-size: 13px; font-weight: 500; background: transparent; color: var(--md-on-surface-variant); border: 1px solid var(--md-outline); cursor: pointer; }
+.chip { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 10px; border-radius: var(--md-radius-full); font-size: 11px; font-weight: 500; letter-spacing: 0.3px; }
+.nav-rail { width: 80px; min-width: 80px; height: 100%; background: var(--md-surface-container-low); display: flex; flex-direction: column; align-items: center; padding: 20px 0; border-right: 1px solid var(--md-outline-variant); }
+.nav-mark { width: 40px; height: 40px; border-radius: var(--md-radius-md); background: var(--md-primary-container); color: var(--md-on-primary-container); display: flex; align-items: center; justify-content: center; margin-bottom: 28px; }
+.nav-items { display: flex; flex-direction: column; gap: 20px; flex: 1; align-items: center; }
+.nav-item { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 64px; }
+.nav-pill { width: 56px; height: 32px; border-radius: var(--md-radius-full); display: flex; align-items: center; justify-content: center; color: var(--md-on-surface-variant); }
+.nav-item.selected .nav-pill { background: var(--md-secondary-container); color: var(--md-on-secondary-container); }
+.nav-item span { color: var(--md-on-surface-variant); font-size: 12px; }
+.nav-item.selected span { color: var(--md-on-surface); font-weight: 500; }
+.nav-lock { display: flex; flex-direction: column; align-items: center; gap: 4px; color: var(--md-on-surface-variant); }
+.topbar { height: 64px; display: flex; align-items: center; justify-content: space-between; padding: 0 32px; border-bottom: 1px solid var(--md-outline-variant); }
+.table { width: 100%; border-collapse: collapse; }
+.table th { text-align: left; padding: 12px 16px; background: var(--md-surface-container-low); color: var(--md-on-surface-variant); font-size: 11px; font-weight: 500; letter-spacing: 0.5px; text-transform: uppercase; border-bottom: 1px solid var(--md-outline-variant); }
+.table td { padding: 13px 16px; border-bottom: 1px solid var(--md-outline-variant); font-size: 13.5px; color: var(--md-on-surface); vertical-align: top; }
+  </style>
+</helmet>
+
+<div style="width:1440px; height:900px; background:var(--md-surface); display:flex; overflow:hidden;">
+
+  <div class="nav-rail">
+    <div class="nav-mark"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="10" rx="2"></rect><path d="M8 11V7a4 4 0 0 1 8 0v4"></path></svg></div>
+    <div class="nav-items">
+      <div class="nav-item"><div class="nav-pill"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="6" width="14" height="14" rx="2"></rect><path d="M8 6V4h10a2 2 0 0 1 2 2v10"></path></svg></div><span>Vault</span></div>
+      <div class="nav-item selected"><div class="nav-pill"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="12" height="16" rx="2"></rect><path d="M9 4V3a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v1"></path><path d="M9 10h6M9 14h6M9 18h3"></path></svg></div><span>Audit trail</span></div>
+      <div class="nav-item"><div class="nav-pill"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"></path></svg></div><span>Settings</span></div>
+    </div>
+    <div class="nav-lock"><div class="nav-pill"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="10" rx="2"></rect><path d="M8 11V7a4 4 0 0 1 8 0v4"></path></svg></div><span>Lock</span></div>
+  </div>
+
+  <div style="flex:1; display:flex; flex-direction:column; min-width:0;">
+    <div class="topbar">
+      <div class="t-headline-s">Audit trail</div>
+      <div style="display:flex; gap:8px;">
+        <button class="btn-outlined">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16M7 12h10M10 19h4"></path></svg>
+          Document: All
+        </button>
+        <button class="btn-outlined">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16M7 12h10M10 19h4"></path></svg>
+          Event type: All
+        </button>
+      </div>
+    </div>
+
+    <div style="flex:1; overflow:auto; padding:24px 32px;">
+      <table class="table">
+        <thead>
+          <tr>
+            <th style="width:150px;">Time</th>
+            <th style="width:150px;">Event</th>
+            <th>Document</th>
+            <th>Destination</th>
+            <th style="width:110px;">Kind</th>
+            <th style="width:170px;">Originals</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Aug 23, 2026 · 9:14 AM</td>
+            <td><span class="chip" style="background:var(--md-tertiary-container); color:var(--md-on-tertiary-container);">Exported PDF</span></td>
+            <td>Lease_Agreement_2026.pdf</td>
+            <td>Saved to Documents/Lease_Agreement_2026_redacted.pdf</td>
+            <td>Export</td>
+            <td>No originals remained on device</td>
+          </tr>
+          <tr>
+            <td>Aug 22, 2026 · 4:02 PM</td>
+            <td><span class="chip" style="background:var(--md-secondary-container); color:var(--md-on-secondary-container);">Asked Cloud AI</span></td>
+            <td>Client_Intake_Form.pdf</td>
+            <td>api.reviewassist.example.com</td>
+            <td>Ask AI</td>
+            <td>Original kept on device</td>
+          </tr>
+          <tr>
+            <td>Aug 22, 2026 · 11:40 AM</td>
+            <td><span class="chip" style="background:var(--md-surface-container-low); color:var(--md-on-surface-variant); border:1px solid var(--md-outline);">Approved</span></td>
+            <td>Client_Intake_Form.pdf</td>
+            <td>–</td>
+            <td>–</td>
+            <td>–</td>
+          </tr>
+          <tr>
+            <td>Aug 20, 2026 · 8:51 AM</td>
+            <td><span class="chip" style="background:var(--md-surface-container-low); color:var(--md-on-surface-variant); border:1px solid var(--md-outline);">Imported</span></td>
+            <td>Support_Ticket_Export.txt</td>
+            <td>–</td>
+            <td>–</td>
+            <td>–</td>
+          </tr>
+          <tr>
+            <td>Aug 18, 2026 · 2:27 PM</td>
+            <td><span class="chip" style="background:var(--md-tertiary-container); color:var(--md-on-tertiary-container);">Exported PDF</span></td>
+            <td>Client_Intake_Form.pdf</td>
+            <td>Recipient note: "For underwriting review"</td>
+            <td>Export</td>
+            <td>Original kept on device</td>
+          </tr>
+          <tr>
+            <td>Aug 15, 2026 · 10:03 AM</td>
+            <td><span class="chip" style="background:var(--md-surface-container-low); color:var(--md-on-surface-variant); border:1px solid var(--md-outline);">Vault created</span></td>
+            <td>–</td>
+            <td>–</td>
+            <td>–</td>
+            <td>–</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+</x-dc>
+</body>
+</html>

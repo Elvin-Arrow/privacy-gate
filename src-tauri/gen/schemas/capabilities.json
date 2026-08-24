@@ -1,0 +1,1 @@
+{"default":{"identifier":"default","description":"Default capabilities for Privacy Gate webview","local":true,"windows":["main"],"permissions":["core:default","core:event:allow-listen","core:event:allow-emit","dialog:allow-save","fs:allow-write"]}}

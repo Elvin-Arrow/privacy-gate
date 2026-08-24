@@ -1,0 +1,22 @@
+services:
+  dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    image: privacy-gate-dev:latest
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
+      - cargo-cache:/root/.cargo
+      - cargo-target:/workspace/target
+      - npm-cache:/root/.npm
+    environment:
+      # Tauri expects this to exist
+      TAURI_CLI_NO_ACTIVE_WINDOW: true
+    stdin_open: true
+    tty: true
+
+volumes:
+  cargo-cache:
+  cargo-target:
+  npm-cache:

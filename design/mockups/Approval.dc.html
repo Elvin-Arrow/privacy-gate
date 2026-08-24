@@ -1,0 +1,227 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap">
+  <style>
+:root {
+  --md-primary: oklch(45% 0.15 264);
+  --md-on-primary: oklch(99% 0 0);
+  --md-primary-container: oklch(91% 0.045 264);
+  --md-on-primary-container: oklch(24% 0.09 264);
+  --md-secondary-container: oklch(91% 0.018 264);
+  --md-on-secondary-container: oklch(26% 0.03 264);
+  --md-tertiary-container: oklch(91% 0.05 168);
+  --md-on-tertiary-container: oklch(22% 0.06 168);
+  --md-error: oklch(50% 0.19 25);
+  --md-error-container: oklch(92% 0.06 25);
+  --md-on-error-container: oklch(27% 0.1 25);
+  --md-surface: oklch(98.5% 0.004 264);
+  --md-surface-container-lowest: oklch(100% 0 0);
+  --md-surface-container-low: oklch(97.3% 0.004 264);
+  --md-surface-container-highest: oklch(91.8% 0.007 264);
+  --md-on-surface: oklch(20% 0.012 264);
+  --md-on-surface-variant: oklch(39% 0.016 264);
+  --md-outline: oklch(56% 0.014 264);
+  --md-outline-variant: oklch(85% 0.008 264);
+  --md-radius-xs: 4px;
+  --md-radius-md: 12px;
+  --md-radius-full: 999px;
+  --md-elev-1: 0 1px 2px rgba(0,0,0,0.15), 0 1px 3px 1px rgba(0,0,0,0.08);
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--md-surface); color: var(--md-on-surface); font-family: 'Roboto', -apple-system, 'Segoe UI', sans-serif; -webkit-font-smoothing: antialiased; }
+.t-headline-s { font-size: 20px; line-height: 26px; font-weight: 500; }
+.t-title-s { font-size: 14px; line-height: 20px; font-weight: 500; letter-spacing: 0.1px; }
+.t-body-l { font-size: 15px; line-height: 26px; font-weight: 400; letter-spacing: 0.3px; }
+.t-body-m { font-size: 14px; line-height: 20px; font-weight: 400; letter-spacing: 0.25px; }
+.t-body-s { font-size: 12px; line-height: 16px; font-weight: 400; letter-spacing: 0.4px; }
+.t-label-l { font-size: 14px; line-height: 20px; font-weight: 500; letter-spacing: 0.1px; }
+.t-label-m { font-size: 11px; line-height: 16px; font-weight: 500; letter-spacing: 0.4px; text-transform: uppercase; }
+.btn { display: inline-flex; align-items: center; justify-content: center; height: 40px; padding: 0 20px; border-radius: var(--md-radius-full); font-family: inherit; font-size: 14px; font-weight: 500; letter-spacing: 0.1px; border: none; cursor: pointer; }
+.btn-filled { background: var(--md-primary); color: var(--md-on-primary); }
+.btn-filled:disabled { background: color-mix(in oklch, var(--md-on-surface) 12%, transparent); color: color-mix(in oklch, var(--md-on-surface) 38%, transparent); cursor: not-allowed; }
+.btn-hero {
+  background: linear-gradient(135deg, var(--md-primary) 0%, var(--md-primary-dim, oklch(38% 0.14 267)) 100%);
+  color: var(--md-on-primary);
+  box-shadow: 0 6px 14px -6px color-mix(in oklch, var(--md-primary) 55%, transparent);
+}
+.btn-hero:disabled {
+  background: color-mix(in oklch, var(--md-on-surface) 12%, transparent);
+  color: color-mix(in oklch, var(--md-on-surface) 38%, transparent);
+  box-shadow: none; cursor: not-allowed;
+}
+.btn-outlined { background: transparent; color: var(--md-on-surface-variant); border: 1px solid var(--md-outline); padding: 0 19px; }
+.icon-btn { width: 40px; height: 40px; border-radius: var(--md-radius-full); border: none; background: transparent; color: var(--md-on-surface-variant); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
+.icon-btn:hover { background: color-mix(in oklch, var(--md-on-surface) 8%, transparent); }
+.segmented { display: inline-flex; border: 1px solid var(--md-outline); border-radius: var(--md-radius-full); overflow: hidden; flex-shrink: 0; }
+.segment { display: flex; align-items: center; gap: 5px; height: 30px; padding: 0 12px; font-size: 12px; font-weight: 600; letter-spacing: 0.2px; background: var(--md-surface); color: var(--md-on-surface-variant); border: none; cursor: pointer; border-right: 1px solid var(--md-outline); }
+.segment:last-child { border-right: none; }
+.segment.selected-keep { background: var(--md-tertiary-container); color: var(--md-on-tertiary-container); }
+.segment.selected-redact { background: var(--md-error-container); color: var(--md-on-error-container); }
+.nav-rail { width: 80px; min-width: 80px; height: 100%; background: var(--md-surface-container-low); display: flex; flex-direction: column; align-items: center; padding: 20px 0; border-right: 1px solid var(--md-outline-variant); }
+.nav-mark { width: 40px; height: 40px; border-radius: var(--md-radius-md); background: var(--md-primary-container); color: var(--md-on-primary-container); display: flex; align-items: center; justify-content: center; margin-bottom: 28px; }
+.nav-items { display: flex; flex-direction: column; gap: 20px; flex: 1; align-items: center; }
+.nav-item { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 64px; }
+.nav-pill { width: 56px; height: 32px; border-radius: var(--md-radius-full); display: flex; align-items: center; justify-content: center; color: var(--md-on-surface-variant); }
+.nav-item.selected .nav-pill { background: var(--md-secondary-container); color: var(--md-on-secondary-container); }
+.nav-item span { color: var(--md-on-surface-variant); font-size: 12px; }
+.nav-item.selected span { color: var(--md-on-surface); font-weight: 500; }
+.nav-lock { display: flex; flex-direction: column; align-items: center; gap: 4px; color: var(--md-on-surface-variant); }
+.topbar { height: 64px; display: flex; align-items: center; justify-content: space-between; padding: 0 24px; border-bottom: 1px solid var(--md-outline-variant); }
+.span-kept { background: color-mix(in oklch, var(--md-tertiary-container) 70%, transparent); border-bottom: 2px solid var(--md-on-tertiary-container); padding: 1px 2px; border-radius: 2px; }
+.span-redacted { background: repeating-linear-gradient(-45deg, color-mix(in oklch, var(--md-error-container) 75%, transparent), color-mix(in oklch, var(--md-error-container) 75%, transparent) 4px, transparent 4px, transparent 8px); border-bottom: 2px solid var(--md-error); padding: 1px 2px; border-radius: 2px; }
+.span-undecided { background: var(--md-surface-container-highest); border-bottom: 2px dashed var(--md-on-surface-variant); padding: 1px 2px; border-radius: 2px; }
+  </style>
+</helmet>
+
+<div style="width:1440px; height:900px; background:var(--md-surface); display:flex; overflow:hidden;">
+
+  <div class="nav-rail">
+    <div class="nav-mark"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="10" rx="2"></rect><path d="M8 11V7a4 4 0 0 1 8 0v4"></path></svg></div>
+    <div class="nav-items">
+      <div class="nav-item selected"><div class="nav-pill"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="6" width="14" height="14" rx="2"></rect><path d="M8 6V4h10a2 2 0 0 1 2 2v10"></path></svg></div><span>Vault</span></div>
+      <div class="nav-item"><div class="nav-pill"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="12" height="16" rx="2"></rect><path d="M9 4V3a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v1"></path><path d="M9 10h6M9 14h6M9 18h3"></path></svg></div><span>Audit trail</span></div>
+      <div class="nav-item"><div class="nav-pill"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"></path></svg></div><span>Settings</span></div>
+    </div>
+    <div class="nav-lock"><div class="nav-pill"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="10" rx="2"></rect><path d="M8 11V7a4 4 0 0 1 8 0v4"></path></svg></div><span>Lock</span></div>
+  </div>
+
+  <div style="flex:1; display:flex; flex-direction:column; min-width:0;">
+    <div class="topbar">
+      <div style="display:flex; align-items:center; gap:12px; min-width:0;">
+        <button class="icon-btn"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"></path></svg></button>
+        <div style="min-width:0;">
+          <div class="t-headline-s" style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Review before approving</div>
+          <div class="t-body-s" style="color:var(--md-on-surface-variant);">Lease_Agreement_2026.pdf</div>
+        </div>
+      </div>
+      <div style="display:flex; gap:8px; align-items:center;">
+        <sc-if value="{{allDecided}}" hint-placeholder-val="{{true}}">
+          <div class="t-body-s" style="color:var(--md-on-surface-variant); margin-right:4px;">All fields decided</div>
+        </sc-if>
+        <sc-if value="{{notAllDecided}}" hint-placeholder-val="{{false}}">
+          <div class="t-body-s" style="color:var(--md-on-surface-variant); margin-right:4px;">1 field still needs a decision</div>
+        </sc-if>
+        <button class="btn btn-outlined">Cancel</button>
+        <button class="btn btn-hero" disabled="{{approveDisabled}}">Approve and store</button>
+      </div>
+    </div>
+
+    <div style="flex:1; display:flex; min-height:0;">
+      <div style="flex:1; overflow:auto; padding:32px 40px;">
+        <div class="t-label-m" style="color:var(--md-on-surface-variant); margin-bottom:16px;">Document text</div>
+        <div class="t-body-l" style="max-width:640px;">
+          <p style="margin:0 0 16px; font-weight:500;">RESIDENTIAL LEASE AGREEMENT</p>
+          <p style="margin:0 0 16px;">
+            This Agreement is entered into as of March 3, 2026, by and between Meridian Property Group ("Landlord") and
+            <span class="span-kept">Rosa T. Delgado</span> ("Tenant"). Tenant agrees to lease the premises located at
+            <span class="span-kept">482 Ridgeline Ct, Unit 4B, Springfield, IL <span class="span-redacted">62704</span></span>
+            for a term of twelve (12) months beginning April 1, 2026.
+          </p>
+          <p style="margin:0 0 16px;">
+            Tenant's contact information on file: email
+            <span class="span-redacted">rosa.delgado@example.com</span>, phone
+            <span class="span-redacted">(555) 019-2731</span>. For identity verification, Tenant's government-issued ID
+            number is <span class="span-undecided">A29-004-1187</span>, held by the Landlord's leasing office for the
+            duration of this Agreement.
+          </p>
+          <p style="margin:0; color:var(--md-on-surface-variant);">
+            Rent in the amount specified in Schedule A is due on the first of each month at the address above…
+          </p>
+        </div>
+      </div>
+
+      <div style="width:400px; min-width:400px; border-left:1px solid var(--md-outline-variant); display:flex; flex-direction:column; overflow:auto;">
+        <div style="padding:20px 20px 8px;">
+          <div class="t-label-m" style="color:var(--md-on-surface-variant);">Detected fields · 6</div>
+        </div>
+
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; padding:14px 20px; border-top:1px solid var(--md-outline-variant);">
+          <div style="min-width:0;">
+            <div class="t-label-l">Rosa T. Delgado</div>
+            <div class="t-body-s" style="color:var(--md-on-surface-variant); margin-top:2px;">Name</div>
+          </div>
+          <div class="segmented">
+            <button class="segment selected-keep"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7Z"></path><circle cx="12" cy="12" r="3"></circle></svg>Keep</button>
+            <button class="segment"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3l18 18"></path><path d="M10.6 10.6a3 3 0 0 0 4.2 4.2"></path><path d="M9.9 5.1A11 11 0 0 1 12 5c7 0 11 7 11 7a13 13 0 0 1-3.1 3.6M6.1 6.1C3.6 7.7 2 10 1 12c0 0 4 7 11 7 1.3 0 2.5-.2 3.6-.6"></path></svg>Redact</button>
+          </div>
+        </div>
+
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; padding:14px 20px; border-top:1px solid var(--md-outline-variant);">
+          <div style="min-width:0;">
+            <div class="t-label-l">482 Ridgeline Ct, Unit 4B, Springfield, IL</div>
+            <div class="t-body-s" style="color:var(--md-on-surface-variant); margin-top:2px;">Address</div>
+          </div>
+          <div class="segmented">
+            <button class="segment selected-keep"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7Z"></path><circle cx="12" cy="12" r="3"></circle></svg>Keep</button>
+            <button class="segment"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3l18 18"></path><path d="M10.6 10.6a3 3 0 0 0 4.2 4.2"></path><path d="M9.9 5.1A11 11 0 0 1 12 5c7 0 11 7 11 7a13 13 0 0 1-3.1 3.6M6.1 6.1C3.6 7.7 2 10 1 12c0 0 4 7 11 7 1.3 0 2.5-.2 3.6-.6"></path></svg>Redact</button>
+          </div>
+        </div>
+
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 20px 14px 40px; border-top:1px solid var(--md-outline-variant); position:relative;">
+          <div style="position:absolute; left:24px; top:0; bottom:50%; width:1px; background:var(--md-outline-variant);"></div>
+          <div style="position:absolute; left:24px; top:50%; width:12px; height:1px; background:var(--md-outline-variant);"></div>
+          <div style="min-width:0;">
+            <div class="t-label-l">62704</div>
+            <div class="t-body-s" style="color:var(--md-on-surface-variant); margin-top:2px;">Postal code · nested in Address</div>
+          </div>
+          <div class="segmented">
+            <button class="segment"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7Z"></path><circle cx="12" cy="12" r="3"></circle></svg>Keep</button>
+            <button class="segment selected-redact"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3l18 18"></path><path d="M10.6 10.6a3 3 0 0 0 4.2 4.2"></path><path d="M9.9 5.1A11 11 0 0 1 12 5c7 0 11 7 11 7a13 13 0 0 1-3.1 3.6M6.1 6.1C3.6 7.7 2 10 1 12c0 0 4 7 11 7 1.3 0 2.5-.2 3.6-.6"></path></svg>Redact</button>
+          </div>
+        </div>
+
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; padding:14px 20px; border-top:1px solid var(--md-outline-variant);">
+          <div style="min-width:0;">
+            <div class="t-label-l">rosa.delgado@example.com</div>
+            <div class="t-body-s" style="color:var(--md-on-surface-variant); margin-top:2px;">Email</div>
+          </div>
+          <div class="segmented">
+            <button class="segment"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7Z"></path><circle cx="12" cy="12" r="3"></circle></svg>Keep</button>
+            <button class="segment selected-redact"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3l18 18"></path><path d="M10.6 10.6a3 3 0 0 0 4.2 4.2"></path><path d="M9.9 5.1A11 11 0 0 1 12 5c7 0 11 7 11 7a13 13 0 0 1-3.1 3.6M6.1 6.1C3.6 7.7 2 10 1 12c0 0 4 7 11 7 1.3 0 2.5-.2 3.6-.6"></path></svg>Redact</button>
+          </div>
+        </div>
+
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; padding:14px 20px; border-top:1px solid var(--md-outline-variant);">
+          <div style="min-width:0;">
+            <div class="t-label-l">(555) 019-2731</div>
+            <div class="t-body-s" style="color:var(--md-on-surface-variant); margin-top:2px;">Phone</div>
+          </div>
+          <div class="segmented">
+            <button class="segment"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7Z"></path><circle cx="12" cy="12" r="3"></circle></svg>Keep</button>
+            <button class="segment selected-redact"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3l18 18"></path><path d="M10.6 10.6a3 3 0 0 0 4.2 4.2"></path><path d="M9.9 5.1A11 11 0 0 1 12 5c7 0 11 7 11 7a13 13 0 0 1-3.1 3.6M6.1 6.1C3.6 7.7 2 10 1 12c0 0 4 7 11 7 1.3 0 2.5-.2 3.6-.6"></path></svg>Redact</button>
+          </div>
+        </div>
+
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; padding:14px 20px; border-top:1px solid var(--md-outline-variant); border-bottom:1px solid var(--md-outline-variant);">
+          <div style="min-width:0;">
+            <div class="t-label-l">A29-004-1187</div>
+            <div class="t-body-s" style="color:var(--md-on-surface-variant); margin-top:2px;">Government ID</div>
+          </div>
+          <div class="segmented">
+            <button class="segment"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7Z"></path><circle cx="12" cy="12" r="3"></circle></svg>Keep</button>
+            <button class="segment"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3l18 18"></path><path d="M10.6 10.6a3 3 0 0 0 4.2 4.2"></path><path d="M9.9 5.1A11 11 0 0 1 12 5c7 0 11 7 11 7a13 13 0 0 1-3.1 3.6M6.1 6.1C3.6 7.7 2 10 1 12c0 0 4 7 11 7 1.3 0 2.5-.2 3.6-.6"></path></svg>Redact</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</x-dc>
+<script data-dc-script data-props='{"allDecided":{"editor":"boolean","default":false,"section":"State","tsType":"boolean"}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const allDecided = this.props.allDecided ?? false;
+    return { allDecided, notAllDecided: !allDecided, approveDisabled: !allDecided };
+  }
+}
+</script>
+</body>
+</html>

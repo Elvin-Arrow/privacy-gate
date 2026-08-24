@@ -1,0 +1,137 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap">
+  <style>
+:root {
+  --md-primary: oklch(45% 0.15 264);
+  --md-on-primary: oklch(99% 0 0);
+  --md-primary-container: oklch(91% 0.045 264);
+  --md-on-primary-container: oklch(24% 0.09 264);
+  --md-secondary-container: oklch(91% 0.018 264);
+  --md-on-secondary-container: oklch(26% 0.03 264);
+  --md-error: oklch(50% 0.19 25);
+  --md-surface: oklch(98.5% 0.004 264);
+  --md-surface-container-lowest: oklch(100% 0 0);
+  --md-surface-container-low: oklch(97.3% 0.004 264);
+  --md-on-surface: oklch(20% 0.012 264);
+  --md-on-surface-variant: oklch(39% 0.016 264);
+  --md-outline: oklch(56% 0.014 264);
+  --md-outline-variant: oklch(85% 0.008 264);
+  --md-radius-xs: 4px;
+  --md-radius-sm: 8px;
+  --md-radius-md: 12px;
+  --md-radius-full: 999px;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--md-surface); color: var(--md-on-surface); font-family: 'Roboto', -apple-system, 'Segoe UI', sans-serif; -webkit-font-smoothing: antialiased; }
+.t-headline-s { font-size: 24px; line-height: 32px; font-weight: 400; }
+.t-title-m { font-size: 16px; line-height: 22px; font-weight: 500; }
+.t-body-m { font-size: 14px; line-height: 20px; font-weight: 400; letter-spacing: 0.25px; }
+.t-body-s { font-size: 12px; line-height: 16px; font-weight: 400; letter-spacing: 0.4px; }
+.t-label-l { font-size: 14px; line-height: 20px; font-weight: 500; letter-spacing: 0.1px; }
+.t-label-m { font-size: 11px; line-height: 16px; font-weight: 500; letter-spacing: 0.5px; text-transform: uppercase; }
+.btn { display: inline-flex; align-items: center; justify-content: center; height: 36px; padding: 0 16px; border-radius: var(--md-radius-full); font-family: inherit; font-size: 13px; font-weight: 500; border: none; cursor: pointer; }
+.btn-outlined { background: transparent; color: var(--md-on-surface-variant); border: 1px solid var(--md-outline); }
+.btn-filled { background: var(--md-primary); color: var(--md-on-primary); }
+.btn-danger-text { background: transparent; color: var(--md-error); }
+.field-ro { display: flex; flex-direction: column; gap: 2px; }
+.field-ro .v { font-size: 14px; color: var(--md-on-surface); }
+.field-ro .k { font-size: 11px; color: var(--md-on-surface-variant); letter-spacing: 0.4px; text-transform: uppercase; }
+.field { position: relative; }
+.field input { width: 100%; height: 48px; border-radius: var(--md-radius-xs); border: 1px solid var(--md-outline); background: transparent; color: var(--md-on-surface); font-family: inherit; font-size: 14px; padding: 16px 14px 4px; }
+.field label { position: absolute; left: 12px; top: 6px; font-size: 10px; color: var(--md-on-surface-variant); letter-spacing: 0.3px; background: var(--md-surface-container-lowest); padding: 0 4px; margin-left: -4px; }
+.radio-dot { width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--md-outline); flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
+.radio-dot.on { border-color: var(--md-primary); }
+.radio-dot.on::after { content: ""; width: 9px; height: 9px; border-radius: 50%; background: var(--md-primary); }
+.switch { width: 44px; height: 26px; border-radius: var(--md-radius-full); border: 2px solid var(--md-outline); background: var(--md-surface-container-low); display: inline-flex; align-items: center; padding: 2px; }
+.switch .thumb { width: 12px; height: 12px; border-radius: 50%; background: var(--md-outline); }
+.section-card { background: var(--md-surface-container-lowest); border: 1px solid var(--md-outline-variant); border-radius: var(--md-radius-md); padding: 20px 24px; }
+.nav-rail { width: 80px; min-width: 80px; height: 100%; background: var(--md-surface-container-low); display: flex; flex-direction: column; align-items: center; padding: 20px 0; border-right: 1px solid var(--md-outline-variant); }
+.nav-mark { width: 40px; height: 40px; border-radius: var(--md-radius-md); background: var(--md-primary-container); color: var(--md-on-primary-container); display: flex; align-items: center; justify-content: center; margin-bottom: 28px; }
+.nav-items { display: flex; flex-direction: column; gap: 20px; flex: 1; align-items: center; }
+.nav-item { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 64px; }
+.nav-pill { width: 56px; height: 32px; border-radius: var(--md-radius-full); display: flex; align-items: center; justify-content: center; color: var(--md-on-surface-variant); }
+.nav-item.selected .nav-pill { background: var(--md-secondary-container); color: var(--md-on-secondary-container); }
+.nav-item span { color: var(--md-on-surface-variant); font-size: 12px; }
+.nav-item.selected span { color: var(--md-on-surface); font-weight: 500; }
+.nav-lock { display: flex; flex-direction: column; align-items: center; gap: 4px; color: var(--md-on-surface-variant); }
+.topbar { height: 64px; display: flex; align-items: center; padding: 0 32px; border-bottom: 1px solid var(--md-outline-variant); }
+  </style>
+</helmet>
+
+<div style="width:1440px; height:900px; background:var(--md-surface); display:flex; overflow:hidden;">
+
+  <div class="nav-rail">
+    <div class="nav-mark"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="10" rx="2"></rect><path d="M8 11V7a4 4 0 0 1 8 0v4"></path></svg></div>
+    <div class="nav-items">
+      <div class="nav-item"><div class="nav-pill"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="6" width="14" height="14" rx="2"></rect><path d="M8 6V4h10a2 2 0 0 1 2 2v10"></path></svg></div><span>Vault</span></div>
+      <div class="nav-item"><div class="nav-pill"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="12" height="16" rx="2"></rect><path d="M9 4V3a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v1"></path><path d="M9 10h6M9 14h6M9 18h3"></path></svg></div><span>Audit trail</span></div>
+      <div class="nav-item selected"><div class="nav-pill"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"></path></svg></div><span>Settings</span></div>
+    </div>
+    <div class="nav-lock"><div class="nav-pill"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="10" rx="2"></rect><path d="M8 11V7a4 4 0 0 1 8 0v4"></path></svg></div><span>Lock</span></div>
+  </div>
+
+  <div style="flex:1; display:flex; flex-direction:column; min-width:0;">
+    <div class="topbar"><div class="t-headline-s">Settings</div></div>
+
+    <div style="flex:1; overflow:auto; padding:28px 32px;">
+      <div style="max-width:640px; display:flex; flex-direction:column; gap:20px;">
+
+        <div>
+          <div class="t-label-m" style="color:var(--md-on-surface-variant); margin-bottom:10px;">Account</div>
+          <div class="section-card" style="display:flex; flex-direction:column; gap:16px;">
+            <div class="field-ro"><span class="k">Display name</span><span class="v">Rosa Delgado</span></div>
+            <div class="field-ro"><span class="k">Account ID</span><span class="v">7f2a-91c0-44de-b8a3</span></div>
+            <div class="field-ro"><span class="k">Created</span><span class="v">Aug 15, 2026</span></div>
+          </div>
+        </div>
+
+        <div>
+          <div class="t-label-m" style="color:var(--md-on-surface-variant); margin-bottom:10px;">Passphrase</div>
+          <div class="section-card" style="display:flex; flex-direction:column; gap:14px;">
+            <div class="field"><input type="password" value="••••••••••••" readonly><label>Current passphrase</label></div>
+            <div class="field"><input type="password" placeholder=" "><label>New passphrase</label></div>
+            <div class="field"><input type="password" placeholder=" "><label>Confirm new passphrase</label></div>
+            <div class="t-body-s" style="color:var(--md-on-surface-variant);">Privacy Gate cannot reset this passphrase. If you forget it, this vault cannot be opened. There is no recovery email or backup code in this version.</div>
+            <div style="display:flex; justify-content:flex-end;"><button class="btn btn-filled">Change passphrase</button></div>
+          </div>
+        </div>
+
+        <div>
+          <div class="t-label-m" style="color:var(--md-on-surface-variant); margin-bottom:10px;">Retention default</div>
+          <div class="section-card" style="display:flex; flex-direction:column; gap:2px;">
+            <div style="display:flex; align-items:center; gap:12px; padding:10px 4px;"><div class="radio-dot on"></div><span class="t-body-m">Discard originals after approval (recommended)</span></div>
+            <div style="display:flex; align-items:center; gap:12px; padding:10px 4px;"><div class="radio-dot"></div><span class="t-body-m">Keep encrypted originals by default</span></div>
+            <div style="display:flex; align-items:center; gap:12px; padding:10px 4px;"><div class="radio-dot"></div><span class="t-body-m">Never keep originals</span></div>
+          </div>
+        </div>
+
+        <div>
+          <div class="t-label-m" style="color:var(--md-on-surface-variant); margin-bottom:10px;">Cloud AI</div>
+          <div class="section-card" style="display:flex; flex-direction:column; gap:14px;">
+            <div class="t-body-s" style="color:var(--md-on-surface-variant);">Sharing sends approved content to the host you type below. Detection never uses this endpoint.</div>
+            <div class="field"><input value="https://api.reviewassist.example.com" readonly><label>Endpoint (https)</label></div>
+            <div class="field"><input value="gpt-review-4" readonly><label>Model ID</label></div>
+            <div class="field"><input value="••••••••ab12" readonly><label>API key</label></div>
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <button class="btn-danger-text" style="background:transparent; border:none; font-size:13px; font-weight:500; cursor:pointer;">Clear configuration</button>
+              <button class="btn btn-outlined">Test connection</button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+</x-dc>
+</body>
+</html>

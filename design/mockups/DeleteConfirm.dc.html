@@ -1,0 +1,92 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap">
+  <style>
+:root {
+  --md-primary: oklch(45% 0.15 264);
+  --md-on-primary-container: oklch(24% 0.09 264);
+  --md-error: oklch(50% 0.19 25);
+  --md-error-dim: oklch(42% 0.18 26);
+  --md-on-error: oklch(99% 0 0);
+  --md-error-container: oklch(92% 0.06 25);
+  --md-on-error-container: oklch(27% 0.1 25);
+  --md-surface: oklch(98.5% 0.004 264);
+  --md-surface-container-lowest: oklch(100% 0 0);
+  --md-surface-container-low: oklch(97.3% 0.004 264);
+  --md-on-surface: oklch(20% 0.012 264);
+  --md-on-surface-variant: oklch(39% 0.016 264);
+  --md-outline-variant: oklch(85% 0.008 264);
+  --md-scrim: oklch(0% 0 0);
+  --md-radius-sm: 10px;
+  --md-radius-md: 16px;
+  --md-radius-full: 999px;
+  --md-radius-xl: 32px;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--md-surface); color: var(--md-on-surface); font-family: 'Roboto', -apple-system, 'Segoe UI', sans-serif; -webkit-font-smoothing: antialiased; }
+.t-headline-s { font-size: 22px; line-height: 28px; font-weight: 400; }
+.t-title-l { font-size: 24px; font-weight: 500; text-align: center; margin: 20px 0 8px; }
+.t-body-dialog { font-size: 14px; line-height: 1.5; color: var(--md-on-surface-variant); text-align: center; max-width: 380px; margin: 0 auto; }
+.t-doc-name { font-weight: 500; color: var(--md-on-surface); }
+.nav-rail { width: 80px; min-width: 80px; height: 100%; background: var(--md-surface-container-low); border-right: 1px solid var(--md-outline-variant); }
+.topbar { height: 64px; display: flex; align-items: center; padding: 0 32px; border-bottom: 1px solid var(--md-outline-variant); }
+
+.dialog-icon-warn { width: 48px; height: 48px; border-radius: var(--md-radius-md); background: var(--md-error-container); color: var(--md-on-error-container); margin: 0 auto; display: flex; align-items: center; justify-content: center; }
+
+.btn-cancel { height: 52px; padding: 0 20px; font-size: 15.5px; font-weight: 500; color: var(--md-on-surface-variant); background: transparent; border: none; cursor: pointer; border-radius: var(--md-radius-sm); font-family: inherit; }
+.btn-delete {
+  height: 52px; padding: 0 28px; border-radius: var(--md-radius-full);
+  background: linear-gradient(135deg, var(--md-error) 0%, var(--md-error-dim) 100%);
+  box-shadow: 0 8px 18px -8px color-mix(in oklch, var(--md-error) 55%, transparent);
+  color: var(--md-on-error); font-size: 15.5px; font-weight: 500; letter-spacing: 0.2px;
+  border: none; cursor: pointer; font-family: inherit;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+}
+  </style>
+</helmet>
+
+<div style="width:1440px; height:900px; position:relative; background:var(--md-surface); display:flex; overflow:hidden;">
+  <!-- dimmed vault behind, for context only -->
+  <div class="nav-rail"></div>
+  <div style="flex:1;">
+    <div class="topbar"><div class="t-headline-s">Vault</div></div>
+  </div>
+
+  <!-- same flat scrim standard as the retention dialog, no blur -->
+  <div style="position:absolute; inset:0; background:color-mix(in oklch, var(--md-scrim) 45%, transparent); display:flex; align-items:center; justify-content:center;">
+    <div style="width:440px; background:var(--md-surface-container-lowest); border-radius:var(--md-radius-xl); padding:32px; box-shadow:0 16px 40px -8px rgba(0,0,0,0.12), 0 6px 16px rgba(0,0,0,0.06);">
+
+      <div class="dialog-icon-warn">
+        <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 7h16M9 7V4h6v3M6 7l1 13a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-13"></path>
+          <path d="M10 11v6M14 11v6"></path>
+        </svg>
+      </div>
+
+      <div class="t-title-l">Delete this document?</div>
+      <div class="t-body-dialog">
+        This deletes the approved version, any kept original, and variants of
+        <span class="t-doc-name">Client_Intake_Form.pdf</span>. It cannot be undone.
+      </div>
+
+      <div style="display:flex; align-items:center; justify-content:flex-end; gap:16px; margin-top:28px;">
+        <button class="btn-cancel">Cancel</button>
+        <button class="btn-delete">
+          <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V4h6v3M6 7l1 13a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-13"></path><path d="M10 11v6M14 11v6"></path></svg>
+          Delete document
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+</x-dc>
+</body>
+</html>

@@ -1,0 +1,21 @@
+{
+  "identifier": "default",
+  "description": "Default capabilities for Privacy Gate webview",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:event:allow-listen",
+    "core:event:allow-emit",
+    "dialog:allow-save",
+    "fs:allow-write"
+  ],
+  "deny": [
+    "fs:allow-read",
+    "fs:allow-read-dir",
+    "http:default",
+    "shell:allow-execute",
+    "shell:allow-kill",
+    "shell:allow-open",
+    "dialog:allow-open"
+  ]
+}

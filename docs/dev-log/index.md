@@ -1,0 +1,37 @@
+# Dev Log Index
+
+## Purpose
+
+Meaningful implementation and work history for Privacy Gate. Grouped by work item; not a daily
+diary. Each entry links to affected specs and decisions.
+
+## Contents
+
+- [0001-srs-generation](./0001-srs-generation.md) — Generated the SRS from idea.md; ran three-model review; reconciled feedback into the spec and surfaced idea-doc gaps.
+- [0002-design-spec](./0002-design-spec.md) — Generated the component-level design spec (Tauri + Rust + TS); resolved design-owned OQs; three-model review.
+- [0003-architecture-spec](./0003-architecture-spec.md) — Generated the architecture spec (crypto, keys, plugins, detector, export); resolved architecture-owned OQs; Gemini review + author reconciliation (Ollama Cloud 429).
+- [0004-api-spec](./0004-api-spec.md) — Generated the Tauri 2 API spec; Claude + Gemini review per decision 0005; resolved OQ-4 filename/PDF metadata and OQ-12 command shape; cross-verified prior specs.
+- [0005-testing-spec](./0005-testing-spec.md) — Testing spec (TDD + cargo-mutants); AC-1..AC-6 mechanics; OQ-6 oracle; Claude + Gemini review.
+- [0006-oq14-retention-default](./0006-oq14-retention-default.md) — Resolved OQ-14: factory discard; first import must confirm retention policy.
+- [0007-data-model-spec](./0007-data-model-spec.md) — Single source for types, identifiers, SQLCipher schema, envelope artifacts, audit rows, keystore item.
+- [0008-ui-spec](./0008-ui-spec.md) — UI spec (Svelte 5); OQ-4 save-dialog chrome; Claude + Gemini review.
+- [0009-w0-repo-skeleton](./0009-w0-repo-skeleton.md) — W0: Tauri 2 + Rust core + Svelte 5 scaffold, Docker-only dev environment, CI, production CSP + capability ACL.
+- [0010-ollama-detector-decision](./0010-ollama-detector-decision.md) — Decision 0009: optional Ollama/Gemma detector backend, Gemini pre-acceptance review (rejected first draft), reconciliation across every downstream spec, W15 split into W15a/b/c.
+- [0011-w1-envelope-crypto](./0011-w1-envelope-crypto.md) — W1: envelope crypto primitives (HKDF-SHA-256 labels, XChaCha20-Poly1305 wrap/unwrap, length-prefixed AAD v1, DEK generate/zeroize); 35 TDD tests; no disk, keystore, or Argon2id.
+- [0012-w2-account-keystore-session](./0012-w2-account-keystore-session.md) — W2: the six session/account commands, `KeystoreItem` behind a `KeystoreBackend` trait (OS keystore, Linux 0600 fallback, in-memory mock), Argon2id wrap_key at the OWASP floor; 53 TDD tests; lock proven by structural absence of key material.
+- [0013-w3-empty-vault](./0013-w3-empty-vault.md) — W3: the SQLCipher vault (`core/src/vault.rs`), raw-key open (not passphrase-KDF), v1 schema, `AccountStore` now backed by a real persistent row; wired into `create_account`/`unlock`/`lock`. Opus review found 2 blocking issues (an untested gated-module property, and an aborted-create_account permanent wedge) plus 6 nits, all fixed; 104 passed/1 ignored, all W1/W2 tests unmodified and green.
+- [0014-w4-session-gating-table](./0014-w4-session-gating-table.md) — W4: `SESSION_TABLE` + `command_allowed` in `core/src/session.rs` replace ad hoc per-command state checks with api.md §2's matrix as data; 18 new table-driven tests covering all 20 cells (including the 3 `degraded_integrity` cells no live session can reach until W5), all prior tests unmodified and green.
+- [0015-w5-audit-chain](./0015-w5-audit-chain.md) — W5: the audit chain (`core/src/audit.rs`) — canonical encoding v1, HMAC, replay verification against a persisted `AuditHead`; `SessionState::DegradedIntegrity` finally reachable; `get_integrity_report`. Opus review found 3 blocking test-coverage gaps (each proven with a real mutation) plus 5 nits, all fixed and re-verified against their mutations; 140 passed/1 ignored, all prior tests unmodified.
+- [0016-w6-retention-config](./0016-w6-retention-config.md) — W6: `get_retention_default`/`set_retention_default` and the `Config` artifact (`core/src/config.rs`) — the first real envelope-encrypted (DEK+master-key) artifact this codebase writes, kind=4 in the `artifact` table. Factory discard/unconfirmed, global loosening allowed, config unavailable while degraded (C-API-6); 11 new tests, 151 passed/1 ignored, all prior tests unmodified.
+- [0017-w7-linux-keystore-fallback](./0017-w7-linux-keystore-fallback.md) — W7: `select_backend`/`select_backend_with` in `core/src/keystore/mod.rs` — probes `OsKeystore::is_available()`, falls back to the W2-built `FileKeystore`. 6 new tests (backend selection, wrong-passphrase-still-fails and stolen-file properties proven on the fallback backend specifically); 157 passed/1 ignored, all prior tests unmodified.
+- [0018-w8-import-plain-text](./0018-w8-import-plain-text.md) — W8: the Importer's plain-text path (`core/src/importer.rs`) — `import_text` extracts UTF-8 bytes into `Document`/`Page`/`TextSpan`; library-only, no command yet. First `core/testdata/` fixture. 8 new tests; 165 passed/1 ignored, all prior tests unmodified.
+- [0019-w9-import-pdf](./0019-w9-import-pdf.md) — W9: `import_pdf` in `core/src/importer.rs` via `pdf-extract`, in-memory only. Found and fixed a real `pdf-extract` whitespace-rendering quirk (stray control/null chars) that a plain `.trim().is_empty()` no-text check would have missed. Fixtures built programmatically with `lopdf`, not hand-typed bytes. 8 new tests; 173 passed/1 ignored, all prior tests unmodified.
+- [0020-w10-catalog-import-document](./0020-w10-catalog-import-document.md) — W10: `import_document`/`list_documents`/`get_document` and the catalog (`core/src/catalog.rs`, kind 8 + kind 2 envelope artifacts). Also built the architecture §6.2 audit-persist cadence (`record_audit_append`, live head, 32-append/on-lock persist) since a real audit-appending command finally exists. `DetectedField`/`NullDetector` seam for W12. Constructor growth stopped via `with_documents`/`with_detector` builder methods. 20 new tests; 193 passed/1 ignored, all prior tests unmodified.
+- [0021-w11-retention-gate](./0021-w11-retention-gate.md) — W11: `retention_policy_unset` (AC-7) and `retention_loosen_forbidden` (AC-6) gates in `import_document`, checked before the Importer/Detector ever run. 10 new tests; 203 passed/1 ignored, all prior tests including every `catalog_w10.rs` test unmodified.
+- [0022-w12-detector-stub](./0022-w12-detector-stub.md) — W12: Detector host + `StubDetector` (`PG-CANARY-` locatable spans); `import_document` runs detect and appends the audit `detect` event. 10 new tests; stub id `pg-detector-stub-v1` until W15.
+
+## Navigation
+
+- Affected specs: [../specs/srs.md](../specs/srs.md), [../specs/design.md](../specs/design.md), [../specs/architecture.md](../specs/architecture.md), [../specs/api.md](../specs/api.md), [../specs/testing.md](../specs/testing.md), [../specs/data-model.md](../specs/data-model.md), [../specs/ui.md](../specs/ui.md).
+- Decisions applied: [0001](../decisions/0001-multi-model-spec-review.md), [0002](../decisions/0002-resolved-srs-clarifications.md), [0003](../decisions/0003-v1-tech-stack.md), [0004](../decisions/0004-v1-architecture.md), [0005](../decisions/0005-review-claude-gemini.md), [0006](../decisions/0006-tdd-and-mutation-testing.md), [0007](../decisions/0007-retention-default-discard.md), [0008](../decisions/0008-frontend-svelte.md), [0009](../decisions/0009-ollama-detector-backend.md).
+- Open questions raised/updated: [../notes/open-questions.md](../notes/open-questions.md).

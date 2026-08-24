@@ -1,0 +1,11 @@
+Dear Sir or Madam,
+
+This is a synthetic letter used only as a Privacy Gate test fixture. It contains no real
+personal data. Any names, numbers, or references below are placeholders for import-pipeline
+testing (dev-plan.md W8).
+
+Reference: PG-FIXTURE-CANARY-0001
+Contact: not-a-real-person@example.invalid
+
+Regards,
+Test Fixture

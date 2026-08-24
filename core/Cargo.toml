@@ -1,0 +1,62 @@
+[package]
+name = "pg-core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Envelope crypto (architecture.md §3.1 library list). No hand-rolled crypto.
+# `hmac` (library), `memsec` and `rusqlite`/SQLCipher land with the chunks that
+# need them (W3/W5), not here.
+chacha20poly1305 = "0.11.0"
+getrandom = "0.4.3"
+hkdf = "0.13.0"
+sha2 = "0.11.0"
+subtle = "2.6.1"
+zeroize = { version = "1.9.0", features = ["derive"] }
+
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = "0.3"
+
+# W2 (architecture.md §3.1 library list): Argon2id passphrase -> wrap_key, OS
+# keystore access, and device-generated account UUIDs (data-model.md §5.6).
+argon2 = "0.5.3"
+keyring = "4.1.6"
+uuid = { version = "1.25.0", features = ["v4"] }
+
+# W3 (architecture.md §3.1 library list, §4.2): "SQLCipher via rusqlite with bundled
+# SQLCipher." bundled-sqlcipher vendors and builds SQLCipher + OpenSSL; no system
+# SQLCipher/OpenSSL dependency beyond the build toolchain the dev container already has.
+rusqlite = { version = "0.32", features = ["bundled-sqlcipher"] }
+
+# W5 (architecture.md §3.1 library list, §6.1): audit-chain HMAC-SHA-256 and the
+# prev_entry_hash SHA-256. `sha2` is already a main dependency (W1's HKDF); `hmac` moves
+# from dev-only (the W1 KDF known-answer reference) to a real production dependency here.
+hmac = "0.13.0"
+
+# W9: PDF text extraction (architecture.md §5.1 "PDF import and export run in memory" —
+# `extract_text_from_mem` never touches a file path). Pure Rust (built on `lopdf`
+# internally), no system PDF library dependency. Export's from-scratch writer (`pdf-writer`
+# or equivalent, architecture §11) is a separate, later dependency (W23) — this is import
+# only.
+pdf-extract = "0.9"
+
+# W10: data-model.md §6.2 `OriginalRecord.raw_bytes_b64` is specified as "RFC 4648 §4
+# Base64 (standard alphabet, with padding)" — the well-audited standard crate rather than a
+# hand-rolled encoder for something that ends up inside an HMAC/AEAD-covered plaintext.
+base64 = "0.22"
+
+[dev-dependencies]
+# Longhand RFC 5869 reference used by the HKDF known-answer tests, so the test
+# does not simply mirror the production call.
+hmac = "0.13.0"
+sha2 = "0.11.0"
+# W2 keystore-backend tests write the Linux 0600 fallback into a temp dir.
+tempfile = "3.27.0"
+serde_json = "1.0"
+# W9: builds synthetic born-digital / no-extractable-text PDF fixtures in-memory for
+# import tests, with programmatically-correct offsets (no hand-typed xref bytes). Already
+# pulled in transitively by pdf-extract; pinned directly here since tests use its API.
+lopdf = "0.36"

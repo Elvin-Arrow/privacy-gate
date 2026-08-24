@@ -1,0 +1,38 @@
+# Dependencies
+node_modules/
+npm-debug.log
+package-lock.json
+.env.local
+.env.*.local
+
+# Build outputs
+dist/
+target/
+*.o
+*.a
+*.so
+*.dylib
+*.exe
+.DS_Store
+
+# Cargo
+Cargo.lock
+
+# Vite
+.vite
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.env
+
+# Environment-specific
+.env.local
+.env.*.local
+
+# OS
+Thumbs.db
+Desktop.ini
