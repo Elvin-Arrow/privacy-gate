@@ -773,3 +773,56 @@ fn redirect_to_another_host_is_refused_not_followed() {
     // Exactly one request — the redirect target was never dialed.
     assert_eq!(mock.call_count(), 1);
 }
+
+// ---------------------------------------------------------------------------
+// Informational: real Ollama Cloud (testing.md §11 style, mirrors
+// `ollama_w15b.rs`'s `nightly_real_ollama_handshake_against_pinned_tag`). Ignored by
+// default — dev-plan.md W27 "No real vendor in CI." A local `ollama serve` already
+// signed in to an Ollama account exposes an OpenAI-compatible endpoint at
+// `/v1/chat/completions` that proxies `*-cloud`-tagged models to Ollama's hosted
+// inference; this is a convenient **stand-in vendor** for a real end-to-end run of the
+// Cloud AI plugin's HTTP path (architecture §9.1 "OpenAI-compatible base URL"), not a
+// claim that Ollama Cloud is v1's supported vendor. Run explicitly with
+// `cargo test -p pg-core --test cloud_ai_w27 -- --ignored real_ollama_cloud`.
+// ---------------------------------------------------------------------------
+
+#[test]
+#[ignore = "real Ollama Cloud; manual/informational only, needs a signed-in local daemon"]
+fn real_ollama_cloud_smoke_test_end_to_end_share() {
+    // `127.0.0.1:11434` is right when this test runs on the same host as `ollama serve`.
+    // Inside this repo's dev container the daemon is a sibling container instead, so
+    // `PG_OLLAMA_ADDR` (e.g. the compose bridge gateway) overrides it for that case.
+    let addr = std::env::var("PG_OLLAMA_ADDR").unwrap_or_else(|_| "127.0.0.1:11434".to_string());
+    let mut wired = fresh_confirmed();
+    let secret = CloudAiSecret {
+        endpoint_url: format!("http://{addr}/v1/chat/completions"),
+        model: "gpt-oss:120b-cloud".to_string(),
+        api_key: "local-daemon-does-not-require-one".to_string(),
+        key_last4: "none".to_string(),
+    };
+    wired
+        .mgr
+        .test_only_set_cloud_ai_config(secret)
+        .expect("store secret");
+
+    let handshake = wired.mgr.cloud_ai_test().expect("cloud_ai_test");
+    assert!(handshake.ok, "handshake: {:?}", handshake.error_class);
+
+    let doc_id = import_and_approve(&mut wired.mgr, "letter.txt");
+    let preview = wired
+        .mgr
+        .preview_share(ai_request(
+            vec![doc_id],
+            "Reply with exactly the two words: test ok",
+        ))
+        .expect("preview");
+    let commit = wired
+        .mgr
+        .commit_share(CommitShareIn {
+            preview_token: preview.preview_token,
+        })
+        .expect("commit against real Ollama Cloud");
+    let output = commit.output_text.expect("model output");
+    assert!(!output.is_empty());
+    println!("real Ollama Cloud output: {output:?}");
+}
