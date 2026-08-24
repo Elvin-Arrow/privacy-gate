@@ -52,6 +52,10 @@ describe('App routing', () => {
     invokeMock.mockImplementation((cmd: string) => {
       if (cmd === 'get_session_state') return Promise.resolve({ state: 'locked' })
       if (cmd === 'unlock') return Promise.resolve({ state: 'unlocked', integrity: null })
+      if (cmd === 'list_documents') return Promise.resolve({ documents: [] })
+      if (cmd === 'get_retention_default') {
+        return Promise.resolve({ policy: 'discard', confirmed: true })
+      }
       throw new Error(`unexpected command: ${cmd}`)
     })
     render(App)
@@ -105,6 +109,10 @@ describe('App routing', () => {
     invokeMock.mockImplementation((cmd: string) => {
       if (cmd === 'get_session_state') return Promise.resolve({ state: 'unlocked' })
       if (cmd === 'lock') return Promise.resolve({ state: 'locked' })
+      if (cmd === 'list_documents') return Promise.resolve({ documents: [] })
+      if (cmd === 'get_retention_default') {
+        return Promise.resolve({ policy: 'discard', confirmed: true })
+      }
       throw new Error(`unexpected command: ${cmd}`)
     })
     render(App)
@@ -123,6 +131,7 @@ describe('App routing', () => {
   it('Settings nav from the unlocked chrome lands on SettingsScreen (W31)', async () => {
     invokeMock.mockImplementation((cmd: string) => {
       if (cmd === 'get_session_state') return Promise.resolve({ state: 'unlocked' })
+      if (cmd === 'list_documents') return Promise.resolve({ documents: [] })
       if (cmd === 'get_account') {
         return Promise.resolve({
           account_id: 'acct-1',

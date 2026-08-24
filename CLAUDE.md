@@ -204,9 +204,18 @@ new/confirm check), the global retention default (§6's three policies; changing
 per-import loosen), and the Cloud AI set/get/clear/test form (typed API key never
 persists past `cloud_ai_set_config` returning); `src/lib/AppShell.svelte` is the shared
 unlocked chrome (Vault/Settings nav, Lock; Audit trail a non-interactive placeholder until
-that chunk lands) extracted out of W30's `VaultScreen`). `W32` (UI: vault, first-import
-modal, import) is next; see `docs/dev-plan.md` for the full sequence and `docs/dev-log/`
-for what each completed chunk did and any problems hit along the way.
+that chunk lands) extracted out of W30's `VaultScreen`), and `W32` (UI: vault, first-import
+modal, import — `src/screens/VaultScreen.svelte` rewritten with the real `list_documents`
+read path and `import_document` write path; `src/lib/RetentionModal.svelte` is decision
+0007's blocking first-import modal, Continue calls `set_retention_default` before any
+import; `src/lib/RetentionOverrideControl.svelte` is the compact per-import
+`retention_override` control; `pg://detect-progress` drives a progress bar; path-separator
+filename rejection in the UI is defense-in-depth only — `core/src/session.rs`'s
+`validate_import_filename` already rejects it. The Approval screen (`open_approval`) is
+**not** built yet — that's `W33` — so a row's Open action shows a "not yet available"
+placeholder instead of navigating; `W33` replaces that placeholder with real navigation).
+`W33` (UI: approval) is next; see `docs/dev-plan.md` for the full sequence and
+`docs/dev-log/` for what each completed chunk did and any problems hit along the way.
 
 ## Agent skills
 

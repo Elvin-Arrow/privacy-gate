@@ -19,6 +19,9 @@ export type ErrorCode =
   | 'passphrase_mismatch'
   | 'cloud_ai_not_configured'
   | 'internal'
+  | 'retention_policy_unset'
+  | 'retention_loosen_forbidden'
+  | 'unsupported_document'
   | (string & {})
 
 /** api.md §3: `ApiError { code, message }`. `message` is always a non-secret, fixed class
@@ -202,3 +205,84 @@ export interface CloudAiTestOut {
 export function cloudAiTest(): Promise<CloudAiTestOut> {
   return invoke('cloud_ai_test')
 }
+
+// ---------------------------------------------------------------------------
+// W32 — api.md §5.3 (import and catalog)
+// ---------------------------------------------------------------------------
+
+/** data-model / catalog.rs: `"pdf" | "text"` (core `SourceFormat`,
+ * `#[serde(rename_all = "snake_case")]`). Only the subset needed to render a row; unknown
+ * values still satisfy `string`. */
+export type SourceFormat = 'pdf' | 'text' | (string & {})
+
+/** `EffectiveRetention` (core/src/session.rs): only two values ever land on a document —
+ * `never_retain` is a *global default* concept (config.rs `RetentionPolicy`), never a
+ * per-document `retention` value (data-model §6.1: "Import under never_retain always
+ * writes retention: discard here"). */
+export type EffectiveRetention = 'retain' | 'discard'
+
+/** `DocumentSummary` (api.md §5.3 / core/src/session.rs). No span text, no field labels —
+ * `detected_field_count` is a number only. */
+export interface DocumentSummary {
+  doc_id: string
+  /** Basename only (api.md §5.3). */
+  source_filename: string
+  source_format: SourceFormat
+  /** RFC 3339 UTC. */
+  imported_at: string
+  retention: EffectiveRetention
+  has_approved_version: boolean
+  has_retained_original: boolean
+  detected_field_count: number
+}
+
+/** `import_document` In (api.md §5.3). `retention_override: null` means "use the global
+ * default". */
+export interface ImportDocumentIn {
+  filename: string
+  bytes: number[]
+  retention_override: EffectiveRetention | null
+}
+
+export interface ImportDocumentOut {
+  summary: DocumentSummary
+  over_budget: boolean
+}
+
+export function importDocument(input: ImportDocumentIn): Promise<ImportDocumentOut> {
+  return invoke('import_document', { input })
+}
+
+export interface ListDocumentsOut {
+  documents: DocumentSummary[]
+}
+
+export function listDocuments(): Promise<ListDocumentsOut> {
+  return invoke('list_documents')
+}
+
+export interface GetDocumentOut {
+  summary: DocumentSummary
+}
+
+export function getDocument(docId: string): Promise<GetDocumentOut> {
+  return invoke('get_document', { input: { doc_id: docId } })
+}
+
+export interface DeleteDocumentOut {
+  ok: true
+}
+
+export function deleteDocument(docId: string): Promise<DeleteDocumentOut> {
+  return invoke('delete_document', { input: { doc_id: docId } })
+}
+
+/** `pg://detect-progress` payload (api.md §6). `phase` is additive (decision 0009); only
+ * `fraction` is rendered in v1 (ui.md §7.2: "show `{ fraction }` as a determinate bar"). */
+export interface DetectProgressEvent {
+  doc_id: string
+  fraction: number
+  phase: 'detecting' | 'warming_model'
+}
+
+export const DETECT_PROGRESS_EVENT = 'pg://detect-progress'
