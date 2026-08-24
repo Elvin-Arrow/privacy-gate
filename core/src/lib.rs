@@ -31,6 +31,8 @@
 //!   between hybrid and Ollama per detect (W15c); `with_detector` installs the stub for
 //!   AC-1..AC-4. `open_approval` / `get_approval_view` / `set_field_decisions` (W16) hold
 //!   one RAM approval session.
+//! - [`overlap`] — design §3.5 byte-offset redaction (innermost keep; partial overlap
+//!   redact-wins) (W17).
 
 pub mod account;
 pub mod api;
@@ -42,5 +44,6 @@ pub mod detector;
 pub mod importer;
 pub mod keys;
 pub mod keystore;
+pub mod overlap;
 pub mod session;
 pub mod vault;
