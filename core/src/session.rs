@@ -4,7 +4,7 @@
 //! Includes [`SessionManager::get_detector_preference`] /
 //! [`SessionManager::set_detector_preference`] (W15c), catalog commands (W10), and
 //! [`SessionManager::open_approval`] / [`SessionManager::get_approval_view`] /
-//! [`SessionManager::set_field_decisions`] (W16).
+//! [`SessionManager::set_field_decisions`] (W16) / [`SessionManager::submit_approval`] (W18).
 //!
 //! `dev-plan.md` §1: "**Integration seam for v1 core:** in-process API commands, not the
 //! webview." Tauri IPC wiring is W29; these are the functions it will call.
@@ -12,8 +12,9 @@
 //! # Scope fence (dev-plan.md W6 "Do not: first-import modal UI (W32); per-import override
 //! (W10)")
 //!
-//! Approval commands (`open_approval` / `get_approval_view` / `set_field_decisions`, W16)
-//! hold one RAM session on [`OpenSession`]. Submit is W18; abort/lock catalog rules are W19.
+//! Approval commands (`open_approval` / `get_approval_view` / `set_field_decisions`, W16;
+//! `submit_approval`, W18) hold one RAM session on [`OpenSession`]. Abort/lock catalog
+//! rules are W19.
 //! `detector_preference` is read and written by W15c's commands and consulted on each
 //! `import_document` detect (architecture §10.1.3) — not cached at unlock.
 //!
@@ -41,8 +42,8 @@ use crate::account::{
 use crate::api::{ApiError, ErrorCode};
 use crate::audit::{AuditError, AuditRow, AuditStore, EventType, FailureKind, OriginalsFlag, VerifyOutcome};
 use crate::catalog::{
-    CatalogError, DocumentMeta, DocumentStore, EffectiveRetention, NullDocumentStore,
-    OriginalRecord,
+    ApprovedVersion, CatalogError, DocumentMeta, DocumentStore, EffectiveRetention,
+    FieldDecision, NullDocumentStore, OriginalRecord,
 };
 use crate::config::{ConfigError, ConfigStore, DetectorPreference, NullConfigStore, RetentionPolicy};
 use crate::detector::{
@@ -226,6 +227,7 @@ const SESSION_TABLE: &[(&str, &[SessionState])] = &[
     ("open_approval", &[SessionState::Unlocked]),
     ("get_approval_view", &[SessionState::Unlocked]),
     ("set_field_decisions", &[SessionState::Unlocked]),
+    ("submit_approval", &[SessionState::Unlocked]),
 ];
 
 /// api.md §2: is `command` callable while the session is in `state`? `false` for any
@@ -483,13 +485,9 @@ pub struct GetDocumentOut {
 // api.md §5.4 — approval commands (W16)
 // ---------------------------------------------------------------------------
 
-/// api.md §4 / data-model §5.2 `FieldDecisionKind`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum FieldDecisionKind {
-    KeepVisible,
-    Redact,
-}
+/// Re-export so IPC DTOs keep using `session::FieldDecisionKind` (data-model type lives
+/// on [`crate::catalog`] so `ApprovedVersion` JSON does not create a catalog→session cycle).
+pub use crate::catalog::FieldDecisionKind;
 
 /// data-model §5.10 / api.md §5.4 `ApprovalLifecycle` (W16 uses awaiting/decided;
 /// committed/aborted land with W18/W19).
@@ -577,6 +575,19 @@ pub struct SetFieldDecisionsIn {
 pub struct SetFieldDecisionsOut {
     pub lifecycle: ApprovalLifecycle,
     pub unresolved_field_ids: Vec<String>,
+}
+
+/// `submit_approval` In: `{ approval_session_id }` (api.md §5.4).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SubmitApprovalIn {
+    pub approval_session_id: String,
+}
+
+/// `submit_approval` Out: `{ summary, lifecycle: "committed" }`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SubmitApprovalOut {
+    pub summary: DocumentSummary,
+    pub lifecycle: ApprovalLifecycle,
 }
 
 /// In-process approval session (data-model §5.10). Lives on [`OpenSession`] so lock drops it.
@@ -1828,12 +1839,12 @@ impl SessionManager {
 
     /// `open_approval` — api.md §5.4; design §2.3; C-DES-1 / C-API-2.
     ///
-    /// One RAM session per process. Submit is W18; abort/lock catalog deletion is W19.
+    /// One RAM session per process. Abort/lock catalog deletion is W19.
     ///
     /// # Errors
     /// - `not_in_session` unless unlocked (not degraded — C-API-6).
     /// - `not_found` if `doc_id` is unknown or the in-memory body is gone.
-    /// - `already_approved` if a canonical `ApprovedVersion` already exists (W18 writes it).
+    /// - `already_approved` if a canonical `ApprovedVersion` already exists.
     /// - `approval_busy` if another approval session is already active.
     pub fn open_approval(&mut self, input: OpenApprovalIn) -> Result<ApprovalView, ApiError> {
         if !command_allowed("open_approval", self.state()) {
@@ -1937,6 +1948,92 @@ impl SessionManager {
         Ok(SetFieldDecisionsOut {
             lifecycle: session.lifecycle,
             unresolved_field_ids: session.unresolved_field_ids(),
+        })
+    }
+
+    /// `submit_approval` — api.md §5.4; FR-3.1–3.2; data-model §6.3 / §8.
+    ///
+    /// Requires `lifecycle == decided`. Writes the canonical kind=1 `ApprovedVersion`
+    /// (overlap rule applied core-side). Drops the RAM session and `pending_bodies` entry
+    /// on Vault ack (design §2.1). Discard never had kind=2; retain leaves it.
+    ///
+    /// # Errors
+    /// - `not_in_session` unless unlocked (not degraded — C-API-6).
+    /// - `not_found` if `approval_session_id` is not the active session.
+    /// - `approval_bad_state` unless `lifecycle == decided`.
+    /// - `already_approved` if a canonical version is already stored (C-DM-4).
+    pub fn submit_approval(&mut self, input: SubmitApprovalIn) -> Result<SubmitApprovalOut, ApiError> {
+        if !command_allowed("submit_approval", self.state()) {
+            return Err(ApiError::not_in_session());
+        }
+        let (doc_id, document, fields, decisions) = {
+            let open = self.require_open()?;
+            let session = open.approval.as_ref().ok_or_else(ApiError::not_found)?;
+            if session.approval_session_id != input.approval_session_id {
+                return Err(ApiError::not_found());
+            }
+            if session.lifecycle != ApprovalLifecycle::Decided {
+                return Err(ApiError::approval_bad_state());
+            }
+            (
+                session.doc_id.clone(),
+                session.document.clone(),
+                session.fields.clone(),
+                session.decisions.clone(),
+            )
+        };
+        if self
+            .documents
+            .has_approved_version(&doc_id)
+            .map_err(map_catalog_err)?
+        {
+            return Err(ApiError::already_approved());
+        }
+
+        let snapshot: Vec<FieldDecision> = fields
+            .iter()
+            .map(|f| {
+                let decision = *decisions.get(&f.id).ok_or_else(ApiError::approval_bad_state)?;
+                Ok(FieldDecision {
+                    field: f.clone(),
+                    decision,
+                })
+            })
+            .collect::<Result<_, ApiError>>()?;
+        let redacted_content = crate::overlap::redact_document(&document, &fields, &decisions);
+        let approved = ApprovedVersion {
+            produced_at_unix_ms: now_unix_ms(),
+            decisions: snapshot,
+            redacted_content,
+        };
+        self.documents
+            .store_approved(&self.require_open()?.master, &doc_id, &approved)
+            .map_err(map_catalog_err)?;
+
+        let audit_decisions: Vec<serde_json::Value> = fields
+            .iter()
+            .map(|f| {
+                serde_json::json!({
+                    "field_id": f.id,
+                    "label": f.label,
+                    "decision": decisions[&f.id],
+                })
+            })
+            .collect();
+        let payload = serde_json::json!({ "decisions": audit_decisions });
+        let payload_jcs = serde_json::to_string(&payload)
+            .map_err(|_| ApiError::internal("audit payload encode failed"))?;
+        self.record_audit_append(EventType::Approve, Some(&doc_id), OriginalsFlag::Unset, &payload_jcs)?;
+
+        if let Some(open) = self.open.as_mut() {
+            open.approval = None;
+            open.pending_bodies.remove(&doc_id);
+        }
+
+        let summary = self.summarize(&self.require_open()?.master, doc_id)?;
+        Ok(SubmitApprovalOut {
+            summary,
+            lifecycle: ApprovalLifecycle::Committed,
         })
     }
 

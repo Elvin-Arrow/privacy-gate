@@ -30,9 +30,10 @@
 //!   [`detector::HybridOllamaV1`] (`pg-hybrid-ollama-v1`, W15b). `import_document` selects
 //!   between hybrid and Ollama per detect (W15c); `with_detector` installs the stub for
 //!   AC-1..AC-4. `open_approval` / `get_approval_view` / `set_field_decisions` (W16) hold
-//!   one RAM approval session.
+//!   one RAM approval session. `submit_approval` (W18) writes the canonical
+//!   `ApprovedVersion` and drops that session.
 //! - [`overlap`] — design §3.5 byte-offset redaction (innermost keep; partial overlap
-//!   redact-wins) (W17).
+//!   redact-wins) applied at `submit_approval` (W17/W18).
 
 pub mod account;
 pub mod api;

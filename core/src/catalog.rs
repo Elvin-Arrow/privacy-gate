@@ -3,10 +3,11 @@
 //!
 //! Delivers `import_document` / `list_documents` / `get_document`'s storage layer: the
 //! `document` SQL row plus its `kind=8` (`document_meta`, always) and `kind=2`
-//! (`original`, iff retention is `retain`) envelope-encrypted artifacts. Same two-AEAD-layer
-//! shape `crate::config` established for `kind=4` — a fresh per-artifact DEK wraps the
-//! plaintext, `vault_master_key` wraps that DEK — except these two kinds are
-//! **document-scoped**: both AADs carry `doc_id`, unlike `Config`'s global ones.
+//! (`original`, iff retention is `retain`) envelope-encrypted artifacts, plus kind=1
+//! (`approved`) after `submit_approval` (W18). Same two-AEAD-layer shape `crate::config`
+//! established for `kind=4` — a fresh per-artifact DEK wraps the plaintext,
+//! `vault_master_key` wraps that DEK — except these kinds are **document-scoped**: AADs
+//! carry `doc_id`, unlike `Config`'s global ones.
 //!
 //! # `DetectedField` lands here, out of strict necessity
 //!
@@ -41,6 +42,44 @@ pub struct DetectedField {
     pub classification: String,
     pub span: TextSpan,
     pub parent_field_id: Option<FieldId>,
+}
+
+/// api.md §4 / data-model §5.2 `FieldDecisionKind`. Lives here so `ApprovedVersion` JSON
+/// does not pull `crate::session` into the catalog (W18).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FieldDecisionKind {
+    KeepVisible,
+    Redact,
+}
+
+/// data-model §5.2 `FieldDecision` — on-disk snapshot inside `ApprovedVersion`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FieldDecision {
+    pub field: DetectedField,
+    pub decision: FieldDecisionKind,
+}
+
+/// data-model §6.3 `redacted_content.pages[]`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RedactedPage {
+    pub page_index: u32,
+    pub spans: Vec<TextSpan>,
+}
+
+/// data-model §5.2 / §6.3 `RedactedDocument`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RedactedDocument {
+    pub format: SourceFormat,
+    pub pages: Vec<RedactedPage>,
+}
+
+/// data-model §6.3 `ApprovedVersion` on disk. `doc_id` is in AAD, not plaintext.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ApprovedVersion {
+    pub produced_at_unix_ms: u64,
+    pub decisions: Vec<FieldDecision>,
+    pub redacted_content: RedactedDocument,
 }
 
 /// data-model §6.1: `DocumentMeta.retention` is `"retain" | "discard"` — **never**
@@ -162,8 +201,7 @@ pub trait DocumentStore: Send + Sync {
     fn load_meta(&self, master: &VaultMasterKey, doc_id: &str) -> Result<Option<DocumentMeta>, CatalogError>;
 
     /// Whether `doc_id` has a canonical `ApprovedVersion` (`document.approved_artifact_id`
-    /// non-null). No decryption needed — SQL column presence only. `false` for every
-    /// document until W18 (`submit_approval`) exists.
+    /// non-null). No decryption needed — SQL column presence only.
     ///
     /// # Errors
     /// [`CatalogError::Backend`] on any I/O/backend failure.
@@ -175,6 +213,41 @@ pub trait DocumentStore: Send + Sync {
     /// # Errors
     /// [`CatalogError::Backend`] on any I/O/backend failure.
     fn has_retained_original(&self, doc_id: &str) -> Result<bool, CatalogError>;
+
+    /// Insert kind=1 and set `document.approved_artifact_id` (data-model §8 / C-DM-4).
+    /// Fails if an approved artifact is already stored for `doc_id`.
+    ///
+    /// # Errors
+    /// [`CatalogError::Backend`] on any I/O/backend/encrypt failure, or if `doc_id` is
+    /// missing / already has an approved version.
+    fn store_approved(
+        &self,
+        master: &VaultMasterKey,
+        doc_id: &str,
+        approved: &ApprovedVersion,
+    ) -> Result<(), CatalogError>;
+
+    /// Decrypt the canonical `ApprovedVersion`. `None` if `doc_id` is unknown or has no
+    /// approved artifact.
+    ///
+    /// # Errors
+    /// [`CatalogError::Backend`] on any I/O/backend/decrypt failure.
+    fn load_approved(
+        &self,
+        master: &VaultMasterKey,
+        doc_id: &str,
+    ) -> Result<Option<ApprovedVersion>, CatalogError>;
+
+    /// Decrypt the retained original. `None` if `doc_id` is unknown or retention was
+    /// discard (no kind=2).
+    ///
+    /// # Errors
+    /// [`CatalogError::Backend`] on any I/O/backend/decrypt failure.
+    fn load_original(
+        &self,
+        master: &VaultMasterKey,
+        doc_id: &str,
+    ) -> Result<Option<OriginalRecord>, CatalogError>;
 }
 
 /// The W2–W9-era no-op backend. Exists so every constructor that predates W10 keeps
@@ -205,6 +278,28 @@ impl DocumentStore for NullDocumentStore {
     fn has_retained_original(&self, _doc_id: &str) -> Result<bool, CatalogError> {
         Ok(false)
     }
+    fn store_approved(
+        &self,
+        _master: &VaultMasterKey,
+        _doc_id: &str,
+        _approved: &ApprovedVersion,
+    ) -> Result<(), CatalogError> {
+        Err(CatalogError::Backend("no document store configured"))
+    }
+    fn load_approved(
+        &self,
+        _master: &VaultMasterKey,
+        _doc_id: &str,
+    ) -> Result<Option<ApprovedVersion>, CatalogError> {
+        Ok(None)
+    }
+    fn load_original(
+        &self,
+        _master: &VaultMasterKey,
+        _doc_id: &str,
+    ) -> Result<Option<OriginalRecord>, CatalogError> {
+        Ok(None)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -221,6 +316,12 @@ pub fn meta_plaintext_aad(doc_id: &str) -> Aad {
 #[must_use]
 pub fn original_plaintext_aad(doc_id: &str) -> Aad {
     Aad::for_document(ArtifactKind::Original, doc_id, CATALOG_FORMAT_VERSION)
+}
+
+/// AAD for the `approved` plaintext layer (kind 1, document-scoped).
+#[must_use]
+pub fn approved_plaintext_aad(doc_id: &str) -> Aad {
+    Aad::for_document(ArtifactKind::Approved, doc_id, CATALOG_FORMAT_VERSION)
 }
 
 /// AAD for a document-scoped artifact's DEK-wrap layer (kind 7 — data-model §6: "as
@@ -291,6 +392,38 @@ pub fn open_original(
         wrapped_dek,
         artifact_blob,
         &original_plaintext_aad(doc_id),
+        &wrap_dek_aad(doc_id),
+    )
+}
+
+/// Seal an [`ApprovedVersion`]. Same shape as [`seal_document_meta`], kind 1.
+///
+/// # Errors
+/// Whatever the underlying AEAD wrap calls return (CSPRNG failure).
+pub fn seal_approved(
+    master: &VaultMasterKey,
+    doc_id: &str,
+    approved: &ApprovedVersion,
+) -> Result<(WrappedBlob, WrappedBlob), CatalogError> {
+    seal(master, approved, &approved_plaintext_aad(doc_id), &wrap_dek_aad(doc_id))
+}
+
+/// The inverse of [`seal_approved`].
+///
+/// # Errors
+/// [`CatalogError::Backend`] if either AEAD layer fails to authenticate, or the plaintext
+/// is not valid `ApprovedVersion` JSON.
+pub fn open_approved(
+    master: &VaultMasterKey,
+    doc_id: &str,
+    wrapped_dek: &WrappedBlob,
+    artifact_blob: &WrappedBlob,
+) -> Result<ApprovedVersion, CatalogError> {
+    open(
+        master,
+        wrapped_dek,
+        artifact_blob,
+        &approved_plaintext_aad(doc_id),
         &wrap_dek_aad(doc_id),
     )
 }

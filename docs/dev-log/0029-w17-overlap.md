@@ -33,7 +33,7 @@ This is a testing.md §5.3 gated module; the PR mutants job is W38.
   the nested-keep and partial-overlap invariants.
 - `cargo test -p pg-core` green; `cargo clippy -p pg-core -- -D warnings` clean.
 
-Next: W18 — `submit_approval`.
+Next: W19 — `abort_approval` and lock vs retention.
 
 ## Related Documentation
 

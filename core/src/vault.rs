@@ -31,7 +31,7 @@ use zeroize::Zeroizing;
 
 use crate::account::{AccountStore, AccountStoreError, LocalAccount};
 use crate::audit::{AuditError, AuditRow, AuditStore, EventType, OriginalsFlag};
-use crate::catalog::{CatalogError, DocumentMeta, DocumentStore, OriginalRecord};
+use crate::catalog::{ApprovedVersion, CatalogError, DocumentMeta, DocumentStore, OriginalRecord};
 use crate::config::{Config, ConfigError, ConfigStore};
 use crate::crypto::{WrappedBlob, NONCE_LEN};
 use crate::keys::{VaultMasterKey, KEY_LEN};
@@ -690,6 +690,7 @@ fn config_err(e: VaultError) -> ConfigError {
 
 const DOCUMENT_META_KIND: i64 = 8; // `ArtifactKind::DocumentMeta as u8`, data-model §6.
 const ORIGINAL_KIND: i64 = 2; // `ArtifactKind::Original as u8`, data-model §6.
+const APPROVED_KIND: i64 = 1; // `ArtifactKind::Approved as u8`, data-model §6.
 
 impl DocumentStore for SqlCipherVault {
     fn insert(
@@ -837,6 +838,114 @@ impl DocumentStore for SqlCipherVault {
             .map_err(|_| VaultError::Backend("has_retained_original query failed"))
         })
         .map_err(catalog_err)
+    }
+
+    fn store_approved(
+        &self,
+        master: &VaultMasterKey,
+        doc_id: &str,
+        approved: &ApprovedVersion,
+    ) -> Result<(), CatalogError> {
+        let (wrapped_dek, blob) = crate::catalog::seal_approved(master, doc_id, approved)?;
+        let artifact_id = uuid::Uuid::new_v4().to_string();
+        let created_at_unix_ms = now_unix_ms();
+        self.with_conn_mut(|conn| {
+            let tx = conn
+                .transaction()
+                .map_err(|_| VaultError::Backend("could not start transaction"))?;
+            tx.execute(
+                "INSERT INTO artifact
+                    (artifact_id, kind, doc_id, format_version, wrapped_dek, nonce, ciphertext, created_at_unix_ms)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                rusqlite::params![
+                    artifact_id,
+                    APPROVED_KIND,
+                    doc_id,
+                    crate::catalog::CATALOG_FORMAT_VERSION,
+                    pack_wrapped_dek(&wrapped_dek),
+                    blob.nonce,
+                    blob.ciphertext,
+                    created_at_unix_ms,
+                ],
+            )
+            .map_err(|_| VaultError::Backend("approved insert failed"))?;
+            let n = tx
+                .execute(
+                    "UPDATE document SET approved_artifact_id = ?1
+                     WHERE doc_id = ?2 AND approved_artifact_id IS NULL",
+                    rusqlite::params![artifact_id, doc_id],
+                )
+                .map_err(|_| VaultError::Backend("approved document update failed"))?;
+            if n != 1 {
+                return Err(VaultError::Backend("approved version already stored"));
+            }
+            tx.commit()
+                .map_err(|_| VaultError::Backend("approved transaction commit failed"))?;
+            Ok(())
+        })
+        .map_err(catalog_err)
+    }
+
+    fn load_approved(
+        &self,
+        master: &VaultMasterKey,
+        doc_id: &str,
+    ) -> Result<Option<ApprovedVersion>, CatalogError> {
+        let row = self
+            .with_conn(|conn| {
+                conn.query_row(
+                    "SELECT a.wrapped_dek, a.nonce, a.ciphertext
+                     FROM document d JOIN artifact a ON a.artifact_id = d.approved_artifact_id
+                     WHERE d.doc_id = ?1",
+                    [doc_id],
+                    |r| {
+                        let wrapped_dek: Vec<u8> = r.get(0)?;
+                        let nonce: Vec<u8> = r.get(1)?;
+                        let ciphertext: Vec<u8> = r.get(2)?;
+                        Ok((wrapped_dek, nonce, ciphertext))
+                    },
+                )
+                .optional()
+                .map_err(|_| VaultError::Backend("approved query failed"))
+            })
+            .map_err(catalog_err)?;
+        let Some((wrapped_dek_bytes, nonce, ciphertext)) = row else {
+            return Ok(None);
+        };
+        let wrapped_dek = unpack_wrapped_dek(&wrapped_dek_bytes).map_err(catalog_err)?;
+        let artifact_blob = WrappedBlob { nonce, ciphertext };
+        crate::catalog::open_approved(master, doc_id, &wrapped_dek, &artifact_blob).map(Some)
+    }
+
+    fn load_original(
+        &self,
+        master: &VaultMasterKey,
+        doc_id: &str,
+    ) -> Result<Option<OriginalRecord>, CatalogError> {
+        let row = self
+            .with_conn(|conn| {
+                conn.query_row(
+                    "SELECT a.wrapped_dek, a.nonce, a.ciphertext
+                     FROM document d JOIN artifact a ON a.artifact_id = d.original_artifact_id
+                     WHERE d.doc_id = ?1",
+                    [doc_id],
+                    |r| {
+                        let wrapped_dek: Vec<u8> = r.get(0)?;
+                        let nonce: Vec<u8> = r.get(1)?;
+                        let ciphertext: Vec<u8> = r.get(2)?;
+                        Ok((wrapped_dek, nonce, ciphertext))
+                    },
+                )
+                .optional()
+                .map_err(|_| VaultError::Backend("original query failed"))
+            })
+            .map_err(catalog_err)?;
+        let Some((wrapped_dek_bytes, nonce, ciphertext)) = row else {
+            return Ok(None);
+        };
+        let wrapped_dek = unpack_wrapped_dek(&wrapped_dek_bytes).map_err(catalog_err)?;
+        let artifact_blob = WrappedBlob { nonce, ciphertext };
+        crate::catalog::open_original(master, doc_id, &wrapped_dek, &artifact_blob).map(Some)
     }
 }
 

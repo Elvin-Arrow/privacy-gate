@@ -169,7 +169,9 @@ choice between `pg-hybrid-v1` and `pg-hybrid-ollama-v1`; audit `detect` honesty;
 keep the stub via `with_detector`). `W16` (`open_approval` / `get_approval_view` /
 `set_field_decisions` — one RAM approval session in `core/src/session.rs`; span text only
 on those commands). `W17` (overlap / nested fields — `core/src/overlap.rs`; innermost keep,
-partial overlap redact-wins; table-driven + `proptest`). `W18` (`submit_approval`) is next;
+partial overlap redact-wins; table-driven + `proptest`). `W18` (`submit_approval` —
+canonical `ApprovedVersion` with `redacted_content`; discard RAM original; audit `approve`).
+`W19` (`abort_approval` and lock vs retention) is next;
 see `docs/dev-plan.md` for the full sequence and `docs/dev-log/` for what each completed
 chunk did and any problems hit along the way.
 

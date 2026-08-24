@@ -36,6 +36,7 @@ diary. Each entry links to affected specs and decisions.
 - [0027-w15c-backend-selection](./0027-w15c-backend-selection.md) — W15c: `get_detector_preference`/`set_detector_preference`; per-detect selection between `pg-hybrid-v1` and `pg-hybrid-ollama-v1`; audit `detect` `backend`/`model_tag`/`fallback_reason`; stub override for AC-1..AC-4.
 - [0028-w16-approval-session](./0028-w16-approval-session.md) — W16: `open_approval`/`get_approval_view`/`set_field_decisions`; one RAM session; span text only here (C-API-2); lifecycle `awaiting_decisions` | `decided`. Submit is W18.
 - [0029-w17-overlap](./0029-w17-overlap.md) — W17: design §3.5 overlap rule (`offset_is_redacted` / `redacted_ranges`); innermost keep; partial overlap redact-wins; table-driven + `proptest`. Submit is W18.
+- [0030-w18-submit-approval](./0030-w18-submit-approval.md) — W18: `submit_approval` writes canonical `ApprovedVersion` (kind=1 `redacted_content`); discard RAM original; audit `approve`; `already_approved`. Abort is W19.
 
 ## Navigation
 

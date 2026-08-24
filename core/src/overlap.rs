@@ -10,8 +10,8 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::catalog::{DetectedField, FieldId};
-use crate::session::FieldDecisionKind;
+use crate::catalog::{DetectedField, FieldDecisionKind, FieldId, RedactedDocument, RedactedPage};
+use crate::importer::{Document, TextSpan};
 
 /// Half-open `[start, end)` ranges that must be omitted from export (design §3.5 last
 /// bullet). Adjacent redacted bytes are merged.
@@ -123,10 +123,90 @@ fn more_specific(
     strictly_contained(inner, outer) || is_descendant(inner, outer, by_id)
 }
 
+/// Apply [`redacted_ranges`] to each page span: redacted bytes are omitted, not overlayed
+/// (data-model §6.3). Coordinate space is page-span offsets (extracted text), not PDF
+/// `raw_bytes` length.
+#[must_use]
+pub fn redact_document(
+    doc: &Document,
+    fields: &[DetectedField],
+    decisions: &HashMap<FieldId, FieldDecisionKind>,
+) -> RedactedDocument {
+    let doc_len = content_len(doc);
+    let ranges = redacted_ranges(doc_len, fields, decisions);
+    let pages = doc
+        .pages
+        .iter()
+        .enumerate()
+        .map(|(i, page)| {
+            let page_index = page
+                .spans
+                .first()
+                .map(|s| s.page_index)
+                .unwrap_or(i as u32);
+            let mut spans = Vec::new();
+            for span in &page.spans {
+                spans.extend(visible_subspans(span, &ranges));
+            }
+            RedactedPage { page_index, spans }
+        })
+        .collect();
+    RedactedDocument {
+        format: doc.source_format,
+        pages,
+    }
+}
+
+fn content_len(doc: &Document) -> u64 {
+    doc.pages
+        .iter()
+        .flat_map(|p| &p.spans)
+        .map(|s| s.byte_offset.saturating_add(s.byte_length))
+        .max()
+        .unwrap_or(0)
+}
+
+fn visible_subspans(span: &TextSpan, redacted: &[(u64, u64)]) -> Vec<TextSpan> {
+    let start = span.byte_offset;
+    let end = start.saturating_add(span.byte_length);
+    let mut cursor = start;
+    let mut out = Vec::new();
+    for &(rs, re) in redacted {
+        let clip_s = rs.max(start);
+        let clip_e = re.min(end);
+        if clip_s >= clip_e {
+            continue;
+        }
+        if cursor < clip_s {
+            if let Some(piece) = slice_span(span, cursor, clip_s) {
+                out.push(piece);
+            }
+        }
+        cursor = cursor.max(clip_e);
+    }
+    if cursor < end {
+        if let Some(piece) = slice_span(span, cursor, end) {
+            out.push(piece);
+        }
+    }
+    out
+}
+
+fn slice_span(span: &TextSpan, from: u64, to: u64) -> Option<TextSpan> {
+    let rel_from = from.saturating_sub(span.byte_offset) as usize;
+    let rel_to = to.saturating_sub(span.byte_offset) as usize;
+    let text = span.text.get(rel_from..rel_to)?;
+    Some(TextSpan {
+        byte_offset: from,
+        byte_length: to.saturating_sub(from),
+        text: text.to_string(),
+        page_index: span.page_index,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::importer::TextSpan;
 
     fn field(id: &str, start: u64, len: u64, parent: Option<&str>) -> DetectedField {
         DetectedField {
