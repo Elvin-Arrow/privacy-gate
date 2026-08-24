@@ -180,12 +180,14 @@ from `redacted_content`; no `/Prev`; redacted canaries omitted). `W24` (`preview
 `commit_share` person-export; byte-identical commit PDF; suggested filename). `W25` (OQ-6
 egress oracle + FlateDecode self-test on person-export), `W26` (ephemeral overrides /
 named variants applied at `preview_share` via `overlap::redact_with_overrides`; canonical
-`ApprovedVersion` untouched; `overrides_in_effect`), and `W27` (Cloud AI plugin, mock HTTP —
+`ApprovedVersion` untouched; `overrides_in_effect`), `W27` (Cloud AI plugin, mock HTTP —
 `core/src/cloud_ai.rs`; envelope-encrypted `CloudAiSecret` kind=5; `cloud_ai_set_config` /
 `get_config` / `clear_config` / `test`; `share_to_ai` on `preview_share`/`commit_share`;
-Rust-side-only HTTP client with redirect refusal; failed sends still audited). `W28`
-(`list_audit_events`, AC-4) is next; see `docs/dev-plan.md` for the full sequence and
-`docs/dev-log/` for what each completed chunk did and any problems hit along the way.
+Rust-side-only HTTP client with redirect refusal; failed sends still audited), and `W28`
+(`list_audit_events`, AC-4 — filtered/paginated read of the audit chain; degraded session
+sees only the verified prefix). `W29` (Tauri IPC, CSP, events) is next; see
+`docs/dev-plan.md` for the full sequence and `docs/dev-log/` for what each completed chunk
+did and any problems hit along the way.
 
 ## Agent skills
 

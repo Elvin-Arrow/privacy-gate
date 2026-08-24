@@ -46,6 +46,7 @@ diary. Each entry links to affected specs and decisions.
 - [0037-w25-oq6-oracle](./0037-w25-oq6-oracle.md) — W25: OQ-6 egress oracle + FlateDecode self-test; person-export uses the oracle. Overrides are W26.
 - [0038-w26-overrides](./0038-w26-overrides.md) — W26: `preview_share` applies `per_doc_overrides` / `applied_variant_ids` ephemerally via `overlap::redact_with_overrides`; canonical `ApprovedVersion` untouched; `overrides_in_effect`. Cloud AI plugin is W27.
 - [0039-w27-cloud-ai](./0039-w27-cloud-ai.md) — W27: `cloud_ai_set_config`/`get`/`clear`/`test` and `share_to_ai` on `preview_share`/`commit_share`; envelope-encrypted `CloudAiSecret` (kind=5); Rust-side-only HTTP client, redirect refusal, identical wire body to the preview; failed sends still audited. `list_audit_events` is W28.
+- [0040-w28-audit-list](./0040-w28-audit-list.md) — W28: `list_audit_events` (AC-4) — filtered/paginated read of the audit chain every earlier chunk already writes; degraded session sees only the verified prefix; no document decrypt. Tauri IPC + CSP is W29.
 
 ## Navigation
 

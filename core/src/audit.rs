@@ -19,6 +19,7 @@
 //! No UI integrity screen (W35), no user-initiated vault restore.
 
 use hmac::{Hmac, KeyInit, Mac};
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::keystore::AuditHead;
@@ -31,8 +32,11 @@ pub const ENCODING_VERSION: u8 = 1;
 /// of sequence 1 and `AuditHead::GENESIS.head_hash` (`crate::keystore`).
 pub const GENESIS_DIGEST: [u8; 32] = [0u8; 32];
 
-/// data-model §5.8.1 / §7 SQL comment: `event_type` u8 codes, 1..6.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// data-model §5.8.1 / §7 SQL comment: `event_type` u8 codes, 1..6. `Serialize`/
+/// `Deserialize` (snake_case, data-model §2.1) are W28: `AuditEventDto.event_type` and
+/// `list_audit_events`'s `event_type` filter both put this straight on the wire.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 #[repr(u8)]
 pub enum EventType {
     Import = 1,
