@@ -196,9 +196,17 @@ real tests: `src/App.svelte` routes on `SessionState` with plain Svelte 5 runes,
 dependency; `src/screens/{FirstRun,Unlock,Integrity,Vault}Screen.svelte`; `src/lib/api.ts`
 (typed `invoke` wrapper) and `src/lib/copy.ts` (canonical copy, ui.md §15); Vitest +
 `@testing-library/svelte` newly wired via `vitest.config.ts`/`src/test/setup.ts`, `invoke`/
-event/dialog/fs mocked at the test level). `W31` (UI: Settings) is next; see
-`docs/dev-plan.md` for the full sequence and `docs/dev-log/` for what each completed chunk
-did and any problems hit along the way.
+event/dialog/fs mocked at the test level), and `W31` (UI: Settings — one
+`src/screens/SettingsScreen.svelte` covering account (read-only), passphrase change
+(`passphrase_mismatch` = wrong current passphrase, kept distinct from the client-side
+new/confirm check), the global retention default (§6's three policies; changing
+`never_retain` → `retain` here is the allowed global-default case, not the forbidden
+per-import loosen), and the Cloud AI set/get/clear/test form (typed API key never
+persists past `cloud_ai_set_config` returning); `src/lib/AppShell.svelte` is the shared
+unlocked chrome (Vault/Settings nav, Lock; Audit trail a non-interactive placeholder until
+that chunk lands) extracted out of W30's `VaultScreen`). `W32` (UI: vault, first-import
+modal, import) is next; see `docs/dev-plan.md` for the full sequence and `docs/dev-log/`
+for what each completed chunk did and any problems hit along the way.
 
 ## Agent skills
 

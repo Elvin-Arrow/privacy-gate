@@ -119,4 +119,40 @@ describe('App routing', () => {
     })
     expect(document.title).toBe('Privacy Gate — Locked')
   })
+
+  it('Settings nav from the unlocked chrome lands on SettingsScreen (W31)', async () => {
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === 'get_session_state') return Promise.resolve({ state: 'unlocked' })
+      if (cmd === 'get_account') {
+        return Promise.resolve({
+          account_id: 'acct-1',
+          display_name: 'Rosa Delgado',
+          created_at: '2026-01-15T10:30:00Z',
+        })
+      }
+      if (cmd === 'get_retention_default') {
+        return Promise.resolve({ policy: 'discard', confirmed: true })
+      }
+      if (cmd === 'cloud_ai_get_config') {
+        return Promise.resolve({
+          configured: false,
+          endpoint_url: null,
+          endpoint_host: null,
+          model: null,
+          key_last4: null,
+        })
+      }
+      throw new Error(`unexpected command: ${cmd}`)
+    })
+    render(App)
+
+    await waitFor(() => screen.getByText(/No documents yet/))
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'Account' })).toBeInTheDocument()
+    })
+    expect(screen.getByText('Rosa Delgado')).toBeInTheDocument()
+  })
 })

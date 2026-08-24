@@ -18,3 +18,32 @@ export const INTEGRITY_BODY =
 
 /** ui.md §13.1: default filename for the integrity report save dialog. */
 export const INTEGRITY_REPORT_FILENAME = 'privacy-gate-integrity-report.json'
+
+// ---------------------------------------------------------------------------
+// W31 — Settings (ui.md §11, §15, §6's retention table)
+// ---------------------------------------------------------------------------
+
+/** ui.md §11.2 client-side check: new/confirm mismatch. Deliberately distinct wording
+ * from `PASSPHRASE_CURRENT_WRONG_COPY` below — this is a same-form typo, not a rejected
+ * credential (see docs/dev-log/0043-w31-ui-settings.md "Ambiguities"). */
+export const PASSPHRASE_CONFIRM_MISMATCH_COPY = "New passphrase and confirmation don't match."
+
+/** api.md §3: `passphrase_mismatch` means the *current* passphrase the user typed is
+ * wrong — not a new/confirm mismatch. Distinct copy so the two are never conflated. */
+export const PASSPHRASE_CURRENT_WRONG_COPY = 'Current passphrase is incorrect.'
+
+/** ui.md §6's table, reused verbatim by §11.3 ("Same three policies as §6"). */
+export const RETENTION_POLICY_LABELS = {
+  discard: 'Discard originals after approval (recommended)',
+  retain: 'Keep encrypted originals by default',
+  never_retain: 'Never keep originals (cannot keep on a single file)',
+} as const
+
+/** ui.md §11.4, strict paraphrase. */
+export const CLOUD_AI_SCOPE_COPY =
+  'Sharing sends only the approved content you choose to the host you configure here. Detection never uses this endpoint.'
+
+/** ui.md §15: shown before an AI share preview when Cloud AI has not been configured yet
+ * (kept here for reuse by a future share-flow chunk, per the brief's steer). */
+export const CLOUD_AI_NOT_CONFIGURED_COPY =
+  'Cloud AI is not configured. Add an endpoint and key in Settings before asking a model.'

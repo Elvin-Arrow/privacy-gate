@@ -15,6 +15,7 @@
   import UnlockScreen from './screens/UnlockScreen.svelte'
   import IntegrityScreen from './screens/IntegrityScreen.svelte'
   import VaultScreen from './screens/VaultScreen.svelte'
+  import SettingsScreen from './screens/SettingsScreen.svelte'
 
   // ui.md §4: no client-side router for four screens — plain reactive state switching on
   // `SessionState` is enough. ui.md §14: chrome first paint is static and gated on
@@ -22,6 +23,12 @@
   // screen renders.
   let sessionState = $state<SessionState | null>(null)
   let integrity = $state<IntegrityReport | null>(null)
+
+  // W31: Settings is a sub-view of the `unlocked` state, not a `SessionState` of its own
+  // (api.md §2 has no such state) — plain local view state, same "no router" reasoning as
+  // above. Reset to 'vault' on every fresh unlock and on lock so re-entering the vault
+  // never leaves Settings showing stale data.
+  let view = $state<'vault' | 'settings'>('vault')
 
   onMount(() => {
     let unlisten: UnlistenFn | undefined
@@ -70,12 +77,14 @@
   function handleUnlocked(out: UnlockOut) {
     sessionState = out.state
     integrity = out.integrity
+    view = 'vault'
   }
 
   async function handleLock() {
     const out = await lock()
     sessionState = out.state
     integrity = null
+    view = 'vault'
   }
 </script>
 
@@ -86,5 +95,9 @@
 {:else if sessionState === 'degraded_integrity'}
   <IntegrityScreen onLock={handleLock} />
 {:else if sessionState === 'unlocked'}
-  <VaultScreen onLock={handleLock} />
+  {#if view === 'vault'}
+    <VaultScreen onLock={handleLock} onNavigateSettings={() => (view = 'settings')} />
+  {:else}
+    <SettingsScreen onLock={handleLock} onNavigateVault={() => (view = 'vault')} />
+  {/if}
 {/if}
