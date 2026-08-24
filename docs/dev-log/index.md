@@ -29,6 +29,7 @@ diary. Each entry links to affected specs and decisions.
 - [0020-w10-catalog-import-document](./0020-w10-catalog-import-document.md) — W10: `import_document`/`list_documents`/`get_document` and the catalog (`core/src/catalog.rs`, kind 8 + kind 2 envelope artifacts). Also built the architecture §6.2 audit-persist cadence (`record_audit_append`, live head, 32-append/on-lock persist) since a real audit-appending command finally exists. `DetectedField`/`NullDetector` seam for W12. Constructor growth stopped via `with_documents`/`with_detector` builder methods. 20 new tests; 193 passed/1 ignored, all prior tests unmodified.
 - [0021-w11-retention-gate](./0021-w11-retention-gate.md) — W11: `retention_policy_unset` (AC-7) and `retention_loosen_forbidden` (AC-6) gates in `import_document`, checked before the Importer/Detector ever run. 10 new tests; 203 passed/1 ignored, all prior tests including every `catalog_w10.rs` test unmodified.
 - [0022-w12-detector-stub](./0022-w12-detector-stub.md) — W12: Detector host + `StubDetector` (`PG-CANARY-` locatable spans); `import_document` runs detect and appends the audit `detect` event. 10 new tests; stub id `pg-detector-stub-v1` until W15.
+- [0023-w13-pattern-pack-uk](./0023-w13-pattern-pack-uk.md) — W13: `pg-patterns-uk-v1` (`PatternsUkV1`) goldens for NI/sort/account plus NHS/email/phone/IBAN/Luhn; PDF/JSON keywords are not hits; stub remains the import default.
 
 ## Navigation
 

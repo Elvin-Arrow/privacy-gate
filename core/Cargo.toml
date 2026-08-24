@@ -48,6 +48,10 @@ pdf-extract = "0.9"
 # hand-rolled encoder for something that ends up inside an HMAC/AEAD-covered plaintext.
 base64 = "0.22"
 
+# W13: `pg-patterns-uk-v1` recognizers (architecture.md §10.1 pins the identifier
+# types, not the regex text). Standard crate; expressions live with the pack.
+regex = "1"
+
 [dev-dependencies]
 # Longhand RFC 5869 reference used by the HKDF known-answer tests, so the test
 # does not simply mirror the production call.

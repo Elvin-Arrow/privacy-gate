@@ -1,10 +1,15 @@
-//! The Detector host seam (`design.md` §2.2; architecture §10; W12).
+//! The Detector host seam (`design.md` §2.2; architecture §10; W12/W13).
 //!
 //! `import_document` (W10) needed *something* here before real detection existed —
 //! dev-plan W10: "Detection may be a no-op empty field list only if W12 is the next PR"
 //! (it was, in this sequence). W12 is that PR: [`StubDetector`] is now
 //! `SessionManager`'s default, in-process, no network, no model weights (dev-plan W12 "Do
 //! not: ONNX weights in this PR if they bloat CI; stub is enough for AC-1").
+//!
+//! W13 adds [`PatternsUkV1`] (`pg-patterns-uk-v1`) as a second [`Detector`] adapter — the
+//! first stage of the eventual hybrid. It is **not** the import default (dev-plan W13:
+//! "Import still works with stub in unit tests"); `SessionManager::with_detector` selects
+//! it. ONNX / Ollama remain W15.
 //!
 //! # What the stub actually does
 //!
@@ -13,11 +18,7 @@
 //! hide a vault bug." [`StubDetector`] scans every span for whitespace-delimited tokens
 //! containing [`STUB_CANARY_MARKER`] (`"PG-CANARY-"`) and reports each as a
 //! [`DetectedField`] at its real byte offset within that span. Real prose without a
-//! planted marker never matches — real detection (regex patterns, then ONNX, then the
-//! optional Ollama backend) is W13/W15a/W15b/W15c; this stub's whole job is to give the
-//! Importer → Detector → catalog **pipeline** something real to exercise (locatable spans,
-//! the audit `detect` event, `detected_field_count`) without depending on model behavior
-//! at all — exactly the roster's "stub has no real detection risk yet."
+//! planted marker never matches.
 //!
 //! # The "empty" plugin hook (FR-2.4 / FR-9.4)
 //!
@@ -27,6 +28,10 @@
 //! ([`StubDetector`], later replaced by the real host) and no third-party plugins. A
 //! separate plugin-loading mechanism is out of scope for v1 entirely (testing.md §14:
 //! "Third-party plugin / WASM tests → later phase").
+
+mod patterns_uk;
+
+pub use patterns_uk::{PatternsUkV1, PATTERNS_UK_V1_ID};
 
 use crate::catalog::DetectedField;
 use crate::importer::{Document, TextSpan};

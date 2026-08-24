@@ -22,8 +22,9 @@
 //!   no command yet.
 //! - [`catalog`] — the document catalog: `DocumentMeta`/`OriginalRecord` envelope storage,
 //!   `DetectedField` (W10, data-model §5.1, §6.1–§6.2).
-//! - [`detector`] — Detector host + stub: `StubDetector` is `SessionManager`'s default
-//!   (W12, design §2.2). Real patterns/ONNX/Ollama are W13/W15.
+//! - [`detector`] — Detector host + stub (`StubDetector`, W12) and pattern pack
+//!   [`detector::PatternsUkV1`] (`pg-patterns-uk-v1`, W13). Stub remains the import
+//!   default; ONNX/Ollama are W15.
 
 pub mod account;
 pub mod api;
