@@ -166,9 +166,11 @@ architecture §6.2 audit-persist cadence), and `W11` (retention-confirmed gate o
 HTTP, handshake/allowlist/digest, verify-then-trust offsets). `W15c` (backend selection —
 `get_detector_preference`/`set_detector_preference` in `core/src/session.rs`; per-detect
 choice between `pg-hybrid-v1` and `pg-hybrid-ollama-v1`; audit `detect` honesty; AC-1..AC-4
-keep the stub via `with_detector`). `W16`
-(approval session) is next; see `docs/dev-plan.md` for the full sequence and
-`docs/dev-log/` for what each completed chunk did and any problems hit along the way.
+keep the stub via `with_detector`). `W16` (`open_approval` / `get_approval_view` /
+`set_field_decisions` — one RAM approval session in `core/src/session.rs`; span text only
+on those commands). `W17` (overlap / nested fields) is next; see `docs/dev-plan.md` for
+the full sequence and `docs/dev-log/` for what each completed chunk did and any problems
+hit along the way.
 
 ## Agent skills
 

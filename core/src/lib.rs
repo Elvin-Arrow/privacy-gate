@@ -29,7 +29,8 @@
 //!   [`detector::HybridV1`] (`pg-hybrid-v1`, W15a), and optional Ollama host
 //!   [`detector::HybridOllamaV1`] (`pg-hybrid-ollama-v1`, W15b). `import_document` selects
 //!   between hybrid and Ollama per detect (W15c); `with_detector` installs the stub for
-//!   AC-1..AC-4.
+//!   AC-1..AC-4. `open_approval` / `get_approval_view` / `set_field_decisions` (W16) hold
+//!   one RAM approval session.
 
 pub mod account;
 pub mod api;

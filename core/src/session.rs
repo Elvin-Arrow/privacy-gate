@@ -2,8 +2,9 @@
 //! `architecture.md` §3.2–§3.4, §6, §7, §10.1.3).
 //!
 //! Includes [`SessionManager::get_detector_preference`] /
-//! [`SessionManager::set_detector_preference`] (W15c) and `import_document` /
-//! `list_documents` / `get_document` (W10).
+//! [`SessionManager::set_detector_preference`] (W15c), catalog commands (W10), and
+//! [`SessionManager::open_approval`] / [`SessionManager::get_approval_view`] /
+//! [`SessionManager::set_field_decisions`] (W16).
 //!
 //! `dev-plan.md` §1: "**Integration seam for v1 core:** in-process API commands, not the
 //! webview." Tauri IPC wiring is W29; these are the functions it will call.
@@ -11,7 +12,8 @@
 //! # Scope fence (dev-plan.md W6 "Do not: first-import modal UI (W32); per-import override
 //! (W10)")
 //!
-//! Approval, share, variant, and Cloud-AI commands are still absent (W16+).
+//! Approval commands (`open_approval` / `get_approval_view` / `set_field_decisions`, W16)
+//! hold one RAM session on [`OpenSession`]. Submit is W18; abort/lock catalog rules are W19.
 //! `detector_preference` is read and written by W15c's commands and consulted on each
 //! `import_document` detect (architecture §10.1.3) — not cached at unlock.
 //!
@@ -26,6 +28,7 @@
 //! `"unlocked"` (api.md §5.1: crash-window fast-forward "returns `\"unlocked\"`", not a
 //! fourth state).
 
+use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::sync::Arc;
 
@@ -46,7 +49,7 @@ use crate::detector::{
     default_ollama_allowlist, AllowlistEntry, Detector, FallbackReason, HybridOllamaV1, HybridV1,
     OllamaClient, HYBRID_OLLAMA_V1_ID, HYBRID_V1_ID, OLLAMA_LOOPBACK_ADDR,
 };
-use crate::importer::{self, SourceFormat};
+use crate::importer::{self, Document, SourceFormat};
 use crate::keys::{unwrap_master_key, wrap_master_key, VaultMasterKey, KEY_LEN};
 use crate::keystore::{
     Argon2idParams, AuditHead, KeystoreBackend, KeystoreBackendKind, KeystoreError, KeystoreItem,
@@ -171,11 +174,10 @@ impl core::fmt::Display for SessionState {
 /// state (including before first run)," i.e. it has no gate at all, so it has no row.
 ///
 /// Only commands that exist so far are listed (dev-plan W4 "Do not: implement
-/// gated-but-unwritten commands"). `list_audit_events` and every approval/share/variant
-/// command remain unregistered. Config and catalog commands that do exist (retention,
-/// detector preference, import/list/get document) share api.md §2's generic
-/// document/config row: `no | no | yes | no` — unavailable while
-/// `degraded_integrity` (C-API-6), unlike `lock`/`get_account`/`get_integrity_report`.
+/// gated-but-unwritten commands"). `list_audit_events` and every share/variant
+/// command remain unregistered. Config, catalog, and approval commands that do exist
+/// share api.md §2's generic document/config row: `no | no | yes | no` — unavailable
+/// while `degraded_integrity` (C-API-6), unlike `lock`/`get_account`/`get_integrity_report`.
 ///
 /// [`SessionState::DegradedIntegrity`] appears in the table even though no command in this
 /// codebase can put a live `SessionManager` into that state yet (W5's gap — see
@@ -220,6 +222,10 @@ const SESSION_TABLE: &[(&str, &[SessionState])] = &[
     ("import_document", &[SessionState::Unlocked]),
     ("list_documents", &[SessionState::Unlocked]),
     ("get_document", &[SessionState::Unlocked]),
+    // W16: api.md §5.4, same generic document row (`no | no | yes | no`).
+    ("open_approval", &[SessionState::Unlocked]),
+    ("get_approval_view", &[SessionState::Unlocked]),
+    ("set_field_decisions", &[SessionState::Unlocked]),
 ];
 
 /// api.md §2: is `command` callable while the session is in `state`? `false` for any
@@ -473,6 +479,192 @@ pub struct GetDocumentOut {
     pub summary: DocumentSummary,
 }
 
+// ---------------------------------------------------------------------------
+// api.md §5.4 — approval commands (W16)
+// ---------------------------------------------------------------------------
+
+/// api.md §4 / data-model §5.2 `FieldDecisionKind`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FieldDecisionKind {
+    KeepVisible,
+    Redact,
+}
+
+/// data-model §5.10 / api.md §5.4 `ApprovalLifecycle` (W16 uses awaiting/decided;
+/// committed/aborted land with W18/W19).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ApprovalLifecycle {
+    AwaitingDecisions,
+    Decided,
+    Committed,
+    Aborted,
+}
+
+/// api.md §4 `DetectedFieldDto.span`. `text` is present on approval commands only.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DetectedFieldSpanDto {
+    pub byte_offset: u64,
+    pub byte_length: u64,
+    pub text: Option<String>,
+    pub page_index: u32,
+}
+
+/// api.md §4 `DetectedFieldDto`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DetectedFieldDto {
+    pub id: String,
+    pub label: String,
+    pub classification: String,
+    pub span: DetectedFieldSpanDto,
+    pub parent_field_id: Option<String>,
+}
+
+/// api.md §4 `FieldDecisionDto`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FieldDecisionDto {
+    pub field_id: String,
+    pub decision: FieldDecisionKind,
+}
+
+/// One page of [`ApprovalView`] (api.md §5.4).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ApprovalPage {
+    pub page_index: u32,
+    pub spans: Vec<ApprovalPageSpan>,
+}
+
+/// Page span on [`ApprovalView`] — body text for the consent step (C-DES-1).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ApprovalPageSpan {
+    pub byte_offset: u64,
+    pub text: String,
+    pub page_index: u32,
+}
+
+/// `open_approval` / `get_approval_view` Out (api.md §5.4).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ApprovalView {
+    pub approval_session_id: String,
+    pub doc_id: String,
+    pub lifecycle: ApprovalLifecycle,
+    pub pages: Vec<ApprovalPage>,
+    pub fields: Vec<DetectedFieldDto>,
+}
+
+/// `open_approval` In: `{ doc_id }`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OpenApprovalIn {
+    pub doc_id: String,
+}
+
+/// `get_approval_view` In: `{ approval_session_id }`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GetApprovalViewIn {
+    pub approval_session_id: String,
+}
+
+/// `set_field_decisions` In.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SetFieldDecisionsIn {
+    pub approval_session_id: String,
+    pub decisions: Vec<FieldDecisionDto>,
+}
+
+/// `set_field_decisions` Out.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SetFieldDecisionsOut {
+    pub lifecycle: ApprovalLifecycle,
+    pub unresolved_field_ids: Vec<String>,
+}
+
+/// In-process approval session (data-model §5.10). Lives on [`OpenSession`] so lock drops it.
+#[derive(Debug)]
+struct ApprovalSession {
+    approval_session_id: String,
+    doc_id: String,
+    lifecycle: ApprovalLifecycle,
+    document: Document,
+    fields: Vec<crate::catalog::DetectedField>,
+    decisions: HashMap<String, FieldDecisionKind>,
+}
+
+impl ApprovalSession {
+    fn unresolved_field_ids(&self) -> Vec<String> {
+        self.fields
+            .iter()
+            .filter(|f| !self.decisions.contains_key(&f.id))
+            .map(|f| f.id.clone())
+            .collect()
+    }
+
+    fn refresh_lifecycle(&mut self) {
+        if matches!(
+            self.lifecycle,
+            ApprovalLifecycle::Committed | ApprovalLifecycle::Aborted
+        ) {
+            return;
+        }
+        self.lifecycle = if self.unresolved_field_ids().is_empty() {
+            ApprovalLifecycle::Decided
+        } else {
+            ApprovalLifecycle::AwaitingDecisions
+        };
+    }
+
+    fn to_view(&self) -> ApprovalView {
+        let pages = self
+            .document
+            .pages
+            .iter()
+            .enumerate()
+            .map(|(i, page)| {
+                let page_index = page
+                    .spans
+                    .first()
+                    .map(|s| s.page_index)
+                    .unwrap_or(i as u32);
+                ApprovalPage {
+                    page_index,
+                    spans: page
+                        .spans
+                        .iter()
+                        .map(|s| ApprovalPageSpan {
+                            byte_offset: s.byte_offset,
+                            text: s.text.clone(),
+                            page_index: s.page_index,
+                        })
+                        .collect(),
+                }
+            })
+            .collect();
+        let fields = self
+            .fields
+            .iter()
+            .map(|f| DetectedFieldDto {
+                id: f.id.clone(),
+                label: f.label.clone(),
+                classification: f.classification.clone(),
+                span: DetectedFieldSpanDto {
+                    byte_offset: f.span.byte_offset,
+                    byte_length: f.span.byte_length,
+                    text: Some(f.span.text.clone()),
+                    page_index: f.span.page_index,
+                },
+                parent_field_id: f.parent_field_id.clone(),
+            })
+            .collect();
+        ApprovalView {
+            approval_session_id: self.approval_session_id.clone(),
+            doc_id: self.doc_id.clone(),
+            lifecycle: self.lifecycle,
+            pages,
+            fields,
+        }
+    }
+}
+
 /// Result of one `import_document` detect phase (W15c). Not an IPC DTO.
 struct DetectionRun {
     fields: Vec<crate::catalog::DetectedField>,
@@ -524,6 +716,11 @@ struct OpenSession {
     /// (and reset to 0) at 32 — architecture §6.2's "every 32 appends" — and unconditionally
     /// on `lock` if nonzero.
     appends_since_persist: u32,
+    /// Page IR + `raw_bytes` for documents imported this unlock (data-model §6.1: not in
+    /// meta). Discard-path approval reads this; lock drops it with the rest of [`OpenSession`].
+    pending_bodies: HashMap<String, Document>,
+    /// One active approval session (design §2.3). `None` when idle.
+    approval: Option<ApprovalSession>,
 }
 
 /// The in-process session and account command surface.
@@ -761,6 +958,10 @@ impl SessionManager {
         self.open.as_ref().ok_or_else(ApiError::not_in_session)
     }
 
+    fn require_open_mut(&mut self) -> Result<&mut OpenSession, ApiError> {
+        self.open.as_mut().ok_or_else(ApiError::not_in_session)
+    }
+
     /// Append one audit row and advance the live head (architecture §6.1/§6.2). Every
     /// command that mutates vault content calls this after the mutation succeeds — W10's
     /// `import_document` is the first. Persists to the keystore immediately at the 32nd
@@ -914,6 +1115,8 @@ impl SessionManager {
             },
             live_head: AuditHead::GENESIS,
             appends_since_persist: 0,
+            pending_bodies: HashMap::new(),
+            approval: None,
         });
         Ok(CreateAccountOut {
             account_id,
@@ -1084,6 +1287,8 @@ impl SessionManager {
             integrity_report: report,
             live_head,
             appends_since_persist: 0,
+            pending_bodies: HashMap::new(),
+            approval: None,
         };
 
         (open_session, out_state, out_integrity, head_to_persist)
@@ -1572,6 +1777,10 @@ impl SessionManager {
             serde_json::to_string(&detect_payload).map_err(|_| ApiError::internal("audit payload encode failed"))?;
         self.record_audit_append(EventType::Detect, Some(&doc_id), OriginalsFlag::Unset, &detect_payload_jcs)?;
 
+        if let Some(open) = self.open.as_mut() {
+            open.pending_bodies.insert(doc_id.clone(), doc);
+        }
+
         let summary = DocumentSummary {
             doc_id: doc_id.clone(),
             source_filename: meta.source_filename,
@@ -1615,6 +1824,120 @@ impl SessionManager {
         let open = self.require_open()?;
         let summary = self.summarize(&open.master, input.doc_id)?;
         Ok(GetDocumentOut { summary })
+    }
+
+    /// `open_approval` — api.md §5.4; design §2.3; C-DES-1 / C-API-2.
+    ///
+    /// One RAM session per process. Submit is W18; abort/lock catalog deletion is W19.
+    ///
+    /// # Errors
+    /// - `not_in_session` unless unlocked (not degraded — C-API-6).
+    /// - `not_found` if `doc_id` is unknown or the in-memory body is gone.
+    /// - `already_approved` if a canonical `ApprovedVersion` already exists (W18 writes it).
+    /// - `approval_busy` if another approval session is already active.
+    pub fn open_approval(&mut self, input: OpenApprovalIn) -> Result<ApprovalView, ApiError> {
+        if !command_allowed("open_approval", self.state()) {
+            return Err(ApiError::not_in_session());
+        }
+        let meta = self
+            .documents
+            .load_meta(&self.require_open()?.master, &input.doc_id)
+            .map_err(map_catalog_err)?
+            .ok_or_else(ApiError::not_found)?;
+        if self
+            .documents
+            .has_approved_version(&input.doc_id)
+            .map_err(map_catalog_err)?
+        {
+            return Err(ApiError::already_approved());
+        }
+        let open = self.require_open_mut()?;
+        if open.approval.is_some() {
+            return Err(ApiError::approval_busy());
+        }
+        let document = open
+            .pending_bodies
+            .get(&input.doc_id)
+            .cloned()
+            .ok_or_else(ApiError::not_found)?;
+        let session = ApprovalSession {
+            approval_session_id: uuid::Uuid::new_v4().to_string(),
+            doc_id: input.doc_id,
+            lifecycle: ApprovalLifecycle::AwaitingDecisions,
+            document,
+            fields: meta.detected_fields,
+            decisions: HashMap::new(),
+        };
+        let view = session.to_view();
+        open.approval = Some(session);
+        Ok(view)
+    }
+
+    /// `get_approval_view` — api.md §5.4. Same payload as `open_approval`; `lifecycle`
+    /// may be `awaiting_decisions` | `decided`.
+    ///
+    /// # Errors
+    /// - `not_in_session` unless unlocked.
+    /// - `not_found` if `approval_session_id` is not the active session.
+    /// - `approval_bad_state` if the session is committed or aborted (W18/W19).
+    pub fn get_approval_view(&self, input: GetApprovalViewIn) -> Result<ApprovalView, ApiError> {
+        if !command_allowed("get_approval_view", self.state()) {
+            return Err(ApiError::not_in_session());
+        }
+        let open = self.require_open()?;
+        let session = open.approval.as_ref().ok_or_else(ApiError::not_found)?;
+        if session.approval_session_id != input.approval_session_id {
+            return Err(ApiError::not_found());
+        }
+        if matches!(
+            session.lifecycle,
+            ApprovalLifecycle::Committed | ApprovalLifecycle::Aborted
+        ) {
+            return Err(ApiError::approval_bad_state());
+        }
+        Ok(session.to_view())
+    }
+
+    /// `set_field_decisions` — api.md §5.4. Partial updates allowed; `lifecycle` is
+    /// `"decided"` iff every detected field has a decision.
+    ///
+    /// # Errors
+    /// - `not_in_session` unless unlocked.
+    /// - `not_found` if `approval_session_id` is not the active session.
+    /// - `invalid_input` if a `field_id` is not in this session.
+    /// - `approval_bad_state` if the session is committed or aborted (W18/W19).
+    pub fn set_field_decisions(
+        &mut self,
+        input: SetFieldDecisionsIn,
+    ) -> Result<SetFieldDecisionsOut, ApiError> {
+        if !command_allowed("set_field_decisions", self.state()) {
+            return Err(ApiError::not_in_session());
+        }
+        let open = self.require_open_mut()?;
+        let session = open.approval.as_mut().ok_or_else(ApiError::not_found)?;
+        if session.approval_session_id != input.approval_session_id {
+            return Err(ApiError::not_found());
+        }
+        if matches!(
+            session.lifecycle,
+            ApprovalLifecycle::Committed | ApprovalLifecycle::Aborted
+        ) {
+            return Err(ApiError::approval_bad_state());
+        }
+        let known: HashSet<&str> = session.fields.iter().map(|f| f.id.as_str()).collect();
+        for d in &input.decisions {
+            if !known.contains(d.field_id.as_str()) {
+                return Err(ApiError::invalid_input("unknown field_id"));
+            }
+        }
+        for d in input.decisions {
+            session.decisions.insert(d.field_id, d.decision);
+        }
+        session.refresh_lifecycle();
+        Ok(SetFieldDecisionsOut {
+            lifecycle: session.lifecycle,
+            unresolved_field_ids: session.unresolved_field_ids(),
+        })
     }
 
     /// Shared by `list_documents`/`get_document`: decrypt one document's meta and compose

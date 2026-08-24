@@ -34,6 +34,7 @@ diary. Each entry links to affected specs and decisions.
 - [0025-w15a-hybrid-onnx](./0025-w15a-hybrid-onnx.md) — W15a: `pg-hybrid-v1` (`HybridV1` = W13 patterns + pinned NER stage); mismatched SHA-256 fails NER closed; stub remains the import default; nightly pin job defined. Weights not vendored.
 - [0026-w15b-ollama-backend](./0026-w15b-ollama-backend.md) — W15b: `pg-hybrid-ollama-v1` (loopback HTTP, handshake/allowlist/digest, verify-then-trust offsets); selectable via `with_detector`; stub remains the import default. Digest/context-window pins recorded as `None` until a real-Ollama nightly.
 - [0027-w15c-backend-selection](./0027-w15c-backend-selection.md) — W15c: `get_detector_preference`/`set_detector_preference`; per-detect selection between `pg-hybrid-v1` and `pg-hybrid-ollama-v1`; audit `detect` `backend`/`model_tag`/`fallback_reason`; stub override for AC-1..AC-4.
+- [0028-w16-approval-session](./0028-w16-approval-session.md) — W16: `open_approval`/`get_approval_view`/`set_field_decisions`; one RAM session; span text only here (C-API-2); lifecycle `awaiting_decisions` | `decided`. Submit is W18.
 
 ## Navigation
 

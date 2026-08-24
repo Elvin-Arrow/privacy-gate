@@ -186,6 +186,39 @@ impl ApiError {
         )
     }
 
+    /// api.md §3: unknown `doc_id` / `variant_id` / `preview_token` / `approval_session_id`.
+    #[must_use]
+    pub fn not_found() -> Self {
+        Self::new(ErrorCode::NotFound, "not found")
+    }
+
+    /// api.md §3: another approval session is already active.
+    #[must_use]
+    pub fn approval_busy() -> Self {
+        Self::new(
+            ErrorCode::ApprovalBusy,
+            "an approval session is already active",
+        )
+    }
+
+    /// api.md §3: approval command does not match the session lifecycle.
+    #[must_use]
+    pub fn approval_bad_state() -> Self {
+        Self::new(
+            ErrorCode::ApprovalBadState,
+            "approval command does not match session lifecycle",
+        )
+    }
+
+    /// api.md §3: `open_approval` on a document that already has a canonical approved version.
+    #[must_use]
+    pub fn already_approved() -> Self {
+        Self::new(
+            ErrorCode::AlreadyApproved,
+            "document already has an approved version",
+        )
+    }
+
     /// api.md §3: unexpected core failure; the class is non-secret.
     #[must_use]
     pub fn internal(message: &'static str) -> Self {
