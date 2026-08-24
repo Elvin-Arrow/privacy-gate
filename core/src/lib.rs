@@ -9,7 +9,8 @@
 //! - [`keystore`] — the `KeystoreItem` and its backends: OS keystore, Linux `0600`
 //!   fallback, in-memory mock (W2, architecture §3.2).
 //! - [`account`] — the local-only `LocalAccount` record (W2, architecture §7).
-//! - [`session`] — the in-process session and account commands (W2, api.md §2, §5.1).
+//! - [`session`] — the in-process session and account commands (W2, api.md §2, §5.1),
+//!   including `pg://detect-progress` (W14).
 //! - [`api`] — the shared `ApiError` / `ErrorCode` model (api.md §3).
 //! - [`vault`] — the SQLCipher database: open/create with the raw `sqlcipher_key`, the v1
 //!   schema, and the `LocalAccount` store backed by it (W3, architecture §4, data-model §7).

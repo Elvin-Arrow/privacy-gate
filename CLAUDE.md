@@ -160,9 +160,10 @@ architecture §6.2 audit-persist cadence), and `W11` (retention-confirmed gate o
 `import_document` — AC-6/AC-7). `W12` (detector host + stub — `StubDetector` in
 `core/src/detector/`, wired into `import_document`). `W13` (pattern pack
 `pg-patterns-uk-v1` — `core/src/detector/patterns_uk.rs`; stub remains the import
-default). `W14` (`pg://detect-progress`) is next; see `docs/dev-plan.md` for the full
-sequence and `docs/dev-log/` for what each completed chunk did and any problems hit
-along the way.
+default). `W14` (`pg://detect-progress` — `ProgressSink` on `SessionManager`;
+synchronous 0→1 around detect). `W15a` (hybrid ONNX `pg-hybrid-v1`) is next; see
+`docs/dev-plan.md` for the full sequence and `docs/dev-log/` for what each completed
+chunk did and any problems hit along the way.
 
 ## Agent skills
 

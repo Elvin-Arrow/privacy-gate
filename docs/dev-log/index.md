@@ -30,6 +30,7 @@ diary. Each entry links to affected specs and decisions.
 - [0021-w11-retention-gate](./0021-w11-retention-gate.md) — W11: `retention_policy_unset` (AC-7) and `retention_loosen_forbidden` (AC-6) gates in `import_document`, checked before the Importer/Detector ever run. 10 new tests; 203 passed/1 ignored, all prior tests including every `catalog_w10.rs` test unmodified.
 - [0022-w12-detector-stub](./0022-w12-detector-stub.md) — W12: Detector host + `StubDetector` (`PG-CANARY-` locatable spans); `import_document` runs detect and appends the audit `detect` event. 10 new tests; stub id `pg-detector-stub-v1` until W15.
 - [0023-w13-pattern-pack-uk](./0023-w13-pattern-pack-uk.md) — W13: `pg-patterns-uk-v1` (`PatternsUkV1`) goldens for NI/sort/account plus NHS/email/phone/IBAN/Luhn; PDF/JSON keywords are not hits; stub remains the import default.
+- [0024-w14-detect-progress](./0024-w14-detect-progress.md) — W14: in-process `pg://detect-progress` (`ProgressSink`); monotonic `fraction` 0→1 around `detect`; never 1.0 before detect returns. UI bar is W32; Tauri emit is W29.
 
 ## Navigation
 

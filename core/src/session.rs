@@ -72,6 +72,42 @@ impl AuditStore for NullAuditStore {
     }
 }
 
+/// api.md §6 event name. W29's Tauri shim emits under this string; in-process tests
+/// assert the constant so a rename cannot silently desync the webview listener.
+pub const DETECT_PROGRESS_EVENT: &str = "pg://detect-progress";
+
+/// api.md §6 `phase` on `pg://detect-progress`. W14 only emits [`DetectPhase::Detecting`];
+/// [`DetectPhase::WarmingModel`] is the W15b Ollama cold-start value, present on the type
+/// so the payload shape is already the spec's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DetectPhase {
+    Detecting,
+    WarmingModel,
+}
+
+/// api.md §6 `pg://detect-progress` payload. No field text, keys, or passphrases
+/// (api.md §6 last line).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DetectProgress {
+    pub doc_id: String,
+    pub fraction: f64,
+    pub phase: DetectPhase,
+}
+
+/// In-process subscriber for [`DetectProgress`]. The default is a no-op; tests and the
+/// W29 Tauri shim supply a real one. Emit is synchronous so a blocking-pool import
+/// (api.md §5.3) can flush to the webview between fractions.
+pub trait ProgressSink: Send + Sync {
+    fn emit_detect_progress(&self, event: DetectProgress);
+}
+
+struct NullProgressSink;
+
+impl ProgressSink for NullProgressSink {
+    fn emit_detect_progress(&self, _event: DetectProgress) {}
+}
+
 /// api.md §5.1: "`passphrase` min length 8 (API floor; UI spec may urge longer)."
 pub const MIN_PASSPHRASE_LEN: usize = 8;
 
@@ -481,6 +517,7 @@ pub struct SessionManager {
     config: Arc<dyn ConfigStore>,
     documents: Arc<dyn DocumentStore>,
     detector: Arc<dyn Detector>,
+    progress: Arc<dyn ProgressSink>,
     open: Option<OpenSession>,
 }
 
@@ -562,6 +599,7 @@ impl SessionManager {
             config,
             documents: Arc::new(NullDocumentStore),
             detector: Arc::new(StubDetector),
+            progress: Arc::new(NullProgressSink),
             open: None,
         }
     }
@@ -584,6 +622,23 @@ impl SessionManager {
     pub fn with_detector(mut self, detector: Arc<dyn Detector>) -> Self {
         self.detector = detector;
         self
+    }
+
+    /// Override the `pg://detect-progress` sink (W14). Defaults to a no-op; W29's Tauri
+    /// shim will supply an emitter that flushes to the webview. In-process tests pass a
+    /// recording sink.
+    #[must_use]
+    pub fn with_progress_sink(mut self, progress: Arc<dyn ProgressSink>) -> Self {
+        self.progress = progress;
+        self
+    }
+
+    fn emit_detect_progress(&self, doc_id: &str, fraction: f64) {
+        self.progress.emit_detect_progress(DetectProgress {
+            doc_id: doc_id.to_string(),
+            fraction,
+            phase: DetectPhase::Detecting,
+        });
     }
 
     /// Which keystore backend is in use (architecture §3.2 recording requirement).
@@ -1286,7 +1341,13 @@ impl SessionManager {
         // fields." W12's default is `StubDetector` (`crate::detector` module docs);
         // `field_ids`/`labels` are captured before `detected_fields` moves into `meta`, for
         // the audit `detect` event below.
+        //
+        // W14 / api.md §6: emit `pg://detect-progress` around detect, never 1.0 before
+        // `detect` returns (dev-plan W14 "Do not: fake 100% before detect finishes").
+        // `phase` is `"detecting"` until W15b's Ollama cold-start.
+        self.emit_detect_progress(&doc_id, 0.0);
         let detected_fields = self.detector.detect(&doc);
+        self.emit_detect_progress(&doc_id, 1.0);
         let detected_field_count = detected_fields.len() as u32;
         let field_ids: Vec<String> = detected_fields.iter().map(|f| f.id.clone()).collect();
         let labels: Vec<String> = detected_fields.iter().map(|f| f.label.clone()).collect();
