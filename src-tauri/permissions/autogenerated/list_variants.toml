@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-list-variants"
+description = "Enables the list_variants command without any pre-configured scope."
+commands.allow = ["list_variants"]
+
+[[permission]]
+identifier = "deny-list-variants"
+description = "Denies the list_variants command without any pre-configured scope."
+commands.deny = ["list_variants"]

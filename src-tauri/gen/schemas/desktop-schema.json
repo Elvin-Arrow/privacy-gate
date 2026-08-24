@@ -2001,6 +2001,390 @@
       "description": "Permission identifier",
       "oneOf": [
         {
+          "description": "Enables the abort_approval command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-abort-approval",
+          "markdownDescription": "Enables the abort_approval command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the change_passphrase command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-change-passphrase",
+          "markdownDescription": "Enables the change_passphrase command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the cloud_ai_clear_config command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-cloud-ai-clear-config",
+          "markdownDescription": "Enables the cloud_ai_clear_config command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the cloud_ai_get_config command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-cloud-ai-get-config",
+          "markdownDescription": "Enables the cloud_ai_get_config command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the cloud_ai_set_config command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-cloud-ai-set-config",
+          "markdownDescription": "Enables the cloud_ai_set_config command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the cloud_ai_test command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-cloud-ai-test",
+          "markdownDescription": "Enables the cloud_ai_test command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the commit_share command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-commit-share",
+          "markdownDescription": "Enables the commit_share command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the create_account command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-create-account",
+          "markdownDescription": "Enables the create_account command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the delete_document command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-delete-document",
+          "markdownDescription": "Enables the delete_document command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the delete_retained_original command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-delete-retained-original",
+          "markdownDescription": "Enables the delete_retained_original command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the delete_variant command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-delete-variant",
+          "markdownDescription": "Enables the delete_variant command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the get_account command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-get-account",
+          "markdownDescription": "Enables the get_account command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the get_approval_view command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-get-approval-view",
+          "markdownDescription": "Enables the get_approval_view command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the get_detector_preference command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-get-detector-preference",
+          "markdownDescription": "Enables the get_detector_preference command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the get_document command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-get-document",
+          "markdownDescription": "Enables the get_document command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the get_integrity_report command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-get-integrity-report",
+          "markdownDescription": "Enables the get_integrity_report command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the get_retention_default command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-get-retention-default",
+          "markdownDescription": "Enables the get_retention_default command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the get_session_state command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-get-session-state",
+          "markdownDescription": "Enables the get_session_state command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the get_variant command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-get-variant",
+          "markdownDescription": "Enables the get_variant command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the import_document command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-import-document",
+          "markdownDescription": "Enables the import_document command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the list_audit_events command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-list-audit-events",
+          "markdownDescription": "Enables the list_audit_events command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the list_documents command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-list-documents",
+          "markdownDescription": "Enables the list_documents command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the list_variants command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-list-variants",
+          "markdownDescription": "Enables the list_variants command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the lock command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-lock",
+          "markdownDescription": "Enables the lock command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the open_approval command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-open-approval",
+          "markdownDescription": "Enables the open_approval command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the preview_share command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-preview-share",
+          "markdownDescription": "Enables the preview_share command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the save_variant command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-save-variant",
+          "markdownDescription": "Enables the save_variant command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the set_detector_preference command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-detector-preference",
+          "markdownDescription": "Enables the set_detector_preference command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the set_field_decisions command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-field-decisions",
+          "markdownDescription": "Enables the set_field_decisions command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the set_retention_default command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-retention-default",
+          "markdownDescription": "Enables the set_retention_default command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the submit_approval command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-submit-approval",
+          "markdownDescription": "Enables the submit_approval command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the unlock command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-unlock",
+          "markdownDescription": "Enables the unlock command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the abort_approval command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-abort-approval",
+          "markdownDescription": "Denies the abort_approval command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the change_passphrase command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-change-passphrase",
+          "markdownDescription": "Denies the change_passphrase command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the cloud_ai_clear_config command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-cloud-ai-clear-config",
+          "markdownDescription": "Denies the cloud_ai_clear_config command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the cloud_ai_get_config command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-cloud-ai-get-config",
+          "markdownDescription": "Denies the cloud_ai_get_config command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the cloud_ai_set_config command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-cloud-ai-set-config",
+          "markdownDescription": "Denies the cloud_ai_set_config command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the cloud_ai_test command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-cloud-ai-test",
+          "markdownDescription": "Denies the cloud_ai_test command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the commit_share command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-commit-share",
+          "markdownDescription": "Denies the commit_share command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the create_account command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-create-account",
+          "markdownDescription": "Denies the create_account command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the delete_document command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-delete-document",
+          "markdownDescription": "Denies the delete_document command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the delete_retained_original command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-delete-retained-original",
+          "markdownDescription": "Denies the delete_retained_original command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the delete_variant command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-delete-variant",
+          "markdownDescription": "Denies the delete_variant command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_account command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-get-account",
+          "markdownDescription": "Denies the get_account command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_approval_view command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-get-approval-view",
+          "markdownDescription": "Denies the get_approval_view command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_detector_preference command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-get-detector-preference",
+          "markdownDescription": "Denies the get_detector_preference command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_document command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-get-document",
+          "markdownDescription": "Denies the get_document command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_integrity_report command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-get-integrity-report",
+          "markdownDescription": "Denies the get_integrity_report command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_retention_default command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-get-retention-default",
+          "markdownDescription": "Denies the get_retention_default command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_session_state command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-get-session-state",
+          "markdownDescription": "Denies the get_session_state command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_variant command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-get-variant",
+          "markdownDescription": "Denies the get_variant command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the import_document command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-import-document",
+          "markdownDescription": "Denies the import_document command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the list_audit_events command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-list-audit-events",
+          "markdownDescription": "Denies the list_audit_events command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the list_documents command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-list-documents",
+          "markdownDescription": "Denies the list_documents command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the list_variants command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-list-variants",
+          "markdownDescription": "Denies the list_variants command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the lock command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-lock",
+          "markdownDescription": "Denies the lock command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the open_approval command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-open-approval",
+          "markdownDescription": "Denies the open_approval command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the preview_share command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-preview-share",
+          "markdownDescription": "Denies the preview_share command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the save_variant command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-save-variant",
+          "markdownDescription": "Denies the save_variant command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_detector_preference command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-detector-preference",
+          "markdownDescription": "Denies the set_detector_preference command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_field_decisions command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-field-decisions",
+          "markdownDescription": "Denies the set_field_decisions command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_retention_default command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-retention-default",
+          "markdownDescription": "Denies the set_retention_default command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the submit_approval command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-submit-approval",
+          "markdownDescription": "Denies the submit_approval command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the unlock command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-unlock",
+          "markdownDescription": "Denies the unlock command without any pre-configured scope."
+        },
+        {
           "description": "Default core plugins set.\n#### This default permission set includes:\n\n- `core:path:default`\n- `core:event:default`\n- `core:window:default`\n- `core:webview:default`\n- `core:app:default`\n- `core:image:default`\n- `core:resources:default`\n- `core:menu:default`\n- `core:tray:default`",
           "type": "string",
           "const": "core:default",

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-preview-share"
+description = "Enables the preview_share command without any pre-configured scope."
+commands.allow = ["preview_share"]
+
+[[permission]]
+identifier = "deny-preview-share"
+description = "Denies the preview_share command without any pre-configured scope."
+commands.deny = ["preview_share"]

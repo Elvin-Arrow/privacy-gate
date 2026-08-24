@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-detector-preference"
+description = "Enables the set_detector_preference command without any pre-configured scope."
+commands.allow = ["set_detector_preference"]
+
+[[permission]]
+identifier = "deny-set-detector-preference"
+description = "Denies the set_detector_preference command without any pre-configured scope."
+commands.deny = ["set_detector_preference"]

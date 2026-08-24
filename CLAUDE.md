@@ -183,11 +183,16 @@ named variants applied at `preview_share` via `overlap::redact_with_overrides`; 
 `ApprovedVersion` untouched; `overrides_in_effect`), `W27` (Cloud AI plugin —
 `core/src/cloud_ai.rs`; `cloud_ai_set_config`/`_get_config`/`_clear_config`/`_test`;
 `preview_share`/`commit_share` `share_to_ai` kind; Rust-core-only HTTP, host-changing
-redirects refused, failed sends still audited), and `W28` (`list_audit_events` — filtered/
+redirects refused, failed sends still audited), `W28` (`list_audit_events` — filtered/
 paginated read path over the audit chain; `AuditEventDto` never carries
 `entry_signature`/`prev_entry_hash`; available `unlocked` and `degraded_integrity`, verified
-prefix only). `W29` (Tauri IPC, CSP) is next; see `docs/dev-plan.md` for the full sequence
-and `docs/dev-log/` for what each completed chunk did and any problems hit along the way.
+prefix only), and `W29` (Tauri IPC, CSP, events — `src-tauri/src/commands.rs`'s 32 thin
+command shims over `SessionManager`, a single dispatcher gate re-using
+`session::command_allowed`, `pg://detect-progress`/`pg://session-changed` event
+forwarding, and a capability ACL + CSP matching `docs/specs/ui.md` §3; not
+mutation-gated). `W30` (UI: first run, lock, unlock) is next; see `docs/dev-plan.md` for
+the full sequence and `docs/dev-log/` for what each completed chunk did and any problems
+hit along the way.
 
 ## Agent skills
 

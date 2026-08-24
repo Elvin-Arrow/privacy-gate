@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-commit-share"
+description = "Enables the commit_share command without any pre-configured scope."
+commands.allow = ["commit_share"]
+
+[[permission]]
+identifier = "deny-commit-share"
+description = "Denies the commit_share command without any pre-configured scope."
+commands.deny = ["commit_share"]

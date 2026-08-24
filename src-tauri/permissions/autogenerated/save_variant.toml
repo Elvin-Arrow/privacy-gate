@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-save-variant"
+description = "Enables the save_variant command without any pre-configured scope."
+commands.allow = ["save_variant"]
+
+[[permission]]
+identifier = "deny-save-variant"
+description = "Denies the save_variant command without any pre-configured scope."
+commands.deny = ["save_variant"]

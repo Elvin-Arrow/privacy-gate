@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-delete-variant"
+description = "Enables the delete_variant command without any pre-configured scope."
+commands.allow = ["delete_variant"]
+
+[[permission]]
+identifier = "deny-delete-variant"
+description = "Denies the delete_variant command without any pre-configured scope."
+commands.deny = ["delete_variant"]

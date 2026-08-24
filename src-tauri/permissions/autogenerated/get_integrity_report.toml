@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-integrity-report"
+description = "Enables the get_integrity_report command without any pre-configured scope."
+commands.allow = ["get_integrity_report"]
+
+[[permission]]
+identifier = "deny-get-integrity-report"
+description = "Denies the get_integrity_report command without any pre-configured scope."
+commands.deny = ["get_integrity_report"]

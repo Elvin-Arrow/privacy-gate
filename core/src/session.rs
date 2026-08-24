@@ -84,6 +84,12 @@ impl AuditStore for NullAuditStore {
 /// assert the constant so a rename cannot silently desync the webview listener.
 pub const DETECT_PROGRESS_EVENT: &str = "pg://detect-progress";
 
+/// api.md §6 event name for `pg://session-changed` (`{ state: SessionState }`), fired
+/// after `create_account` / `unlock` / `lock` (W29's Tauri shim). Kept alongside
+/// [`DETECT_PROGRESS_EVENT`] so both event-name constants live in one place instead of
+/// being re-typed at each emit call site.
+pub const SESSION_CHANGED_EVENT: &str = "pg://session-changed";
+
 /// api.md §6 `phase` on `pg://detect-progress`. [`DetectPhase::Detecting`] is the
 /// bundled/stub/fallback path. [`DetectPhase::WarmingModel`] is emitted only after a
 /// successful Ollama handshake (architecture §10.1.5); handshake failure never uses it.

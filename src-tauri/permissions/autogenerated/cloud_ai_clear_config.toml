@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-cloud-ai-clear-config"
+description = "Enables the cloud_ai_clear_config command without any pre-configured scope."
+commands.allow = ["cloud_ai_clear_config"]
+
+[[permission]]
+identifier = "deny-cloud-ai-clear-config"
+description = "Denies the cloud_ai_clear_config command without any pre-configured scope."
+commands.deny = ["cloud_ai_clear_config"]
