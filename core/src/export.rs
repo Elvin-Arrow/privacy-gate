@@ -9,7 +9,7 @@
 //! canaries and so a FlateDecode skip cannot hide a leak. Compression, if added later,
 //! must keep the oracle self-test (W25) green.
 
-use pdf_writer::{Content, Name, Pdf, Rect, Ref, Str, TextStr};
+use pdf_writer::{Content, Date, Name, Pdf, Rect, Ref, Str, TextStr};
 
 use crate::catalog::{RedactedDocument, RedactedPage};
 
@@ -21,17 +21,30 @@ const FONT_SIZE: f32 = 12.0;
 const LINE_HEIGHT: f32 = 16.0;
 const MAX_LINE_CHARS: usize = 90;
 
+/// Info dictionary fields owned by the re-renderer (api.md §7.2). Title is the suggested
+/// filename without `.pdf`; dates are the export timestamp.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PdfExportInfo {
+    pub title: String,
+    pub created_unix_ms: u64,
+}
+
 /// Render `doc` to a newly generated PDF (architecture §11).
 ///
 /// Only remaining span text is written. Producer/Creator are `Privacy Gate`; Author,
-/// Subject, and Keywords are omitted (api.md §7.2). Title and dates are W24's filename
-/// / export-timestamp concern.
+/// Subject, and Keywords are omitted (api.md §7.2).
 #[must_use]
 pub fn render_redacted_pdf(doc: &RedactedDocument) -> Vec<u8> {
-    let page_texts: Vec<String> = if doc.pages.is_empty() {
+    render_redacted_pages(&doc.pages, None)
+}
+
+/// Render ordered pages (one document or a multi-doc bundle) to a new PDF.
+#[must_use]
+pub fn render_redacted_pages(pages: &[RedactedPage], info: Option<&PdfExportInfo>) -> Vec<u8> {
+    let page_texts: Vec<String> = if pages.is_empty() {
         vec![String::new()]
     } else {
-        doc.pages.iter().map(page_plain_text).collect()
+        pages.iter().map(page_plain_text).collect()
     };
 
     let mut alloc = Ref::new(1);
@@ -47,9 +60,16 @@ pub fn render_redacted_pdf(doc: &RedactedDocument) -> Vec<u8> {
     pdf.pages(page_tree_id)
         .kids(page_ids.iter().copied())
         .count(page_ids.len() as i32);
-    pdf.document_info(info_id)
-        .producer(TextStr("Privacy Gate"))
-        .creator(TextStr("Privacy Gate"));
+    {
+        let mut di = pdf.document_info(info_id);
+        di.producer(TextStr("Privacy Gate"))
+            .creator(TextStr("Privacy Gate"));
+        if let Some(info) = info {
+            di.title(TextStr(&info.title));
+            let date = pdf_date(info.created_unix_ms);
+            di.creation_date(date).modified_date(date);
+        }
+    }
     pdf.type1_font(font_id).base_font(Name(b"Helvetica"));
 
     for (i, text) in page_texts.iter().enumerate() {
@@ -124,4 +144,21 @@ fn wrap_lines(text: &str) -> Vec<String> {
         lines.push(current);
     }
     lines
+}
+
+fn pdf_date(unix_ms: u64) -> Date {
+    let rfc = crate::account::format_rfc3339((unix_ms / 1000) as i64);
+    let year: u16 = rfc.get(0..4).and_then(|s| s.parse().ok()).unwrap_or(1970);
+    let month: u8 = rfc.get(5..7).and_then(|s| s.parse().ok()).unwrap_or(1);
+    let day: u8 = rfc.get(8..10).and_then(|s| s.parse().ok()).unwrap_or(1);
+    let hour: u8 = rfc.get(11..13).and_then(|s| s.parse().ok()).unwrap_or(0);
+    let minute: u8 = rfc.get(14..16).and_then(|s| s.parse().ok()).unwrap_or(0);
+    let second: u8 = rfc.get(17..19).and_then(|s| s.parse().ok()).unwrap_or(0);
+    Date::new(year)
+        .month(month)
+        .day(day)
+        .hour(hour)
+        .minute(minute)
+        .second(second)
+        .utc_offset_hour(0)
 }

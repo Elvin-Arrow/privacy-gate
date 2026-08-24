@@ -500,6 +500,7 @@ fn degraded_session_cannot_reach_unimplemented_document_commands() {
         "delete_variant",
         "preview_share",
         "commit_share",
+        "cloud_ai_set_config",
     ] {
         assert!(
             !command_allowed(command, SessionState::DegradedIntegrity),

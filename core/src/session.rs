@@ -176,8 +176,8 @@ impl core::fmt::Display for SessionState {
 /// state (including before first run)," i.e. it has no gate at all, so it has no row.
 ///
 /// Only commands that exist so far are listed (dev-plan W4 "Do not: implement
-/// gated-but-unwritten commands"). `list_audit_events` and every share
-/// command remain unregistered. Config, catalog, variant, and approval commands that do
+/// gated-but-unwritten commands"). `list_audit_events` and Cloud AI
+/// commands remain unregistered. Config, catalog, variant, share, and approval commands that do
 /// exist share api.md §2's generic document/config row: `no | no | yes | no` — unavailable
 /// while `degraded_integrity` (C-API-6), unlike `lock`/`get_account`/`get_integrity_report`.
 ///
@@ -237,6 +237,9 @@ const SESSION_TABLE: &[(&str, &[SessionState])] = &[
     ("get_variant", &[SessionState::Unlocked]),
     ("save_variant", &[SessionState::Unlocked]),
     ("delete_variant", &[SessionState::Unlocked]),
+    // W24: api.md §5.6, same generic document row (`no | no | yes | no`).
+    ("preview_share", &[SessionState::Unlocked]),
+    ("commit_share", &[SessionState::Unlocked]),
 ];
 
 /// api.md §2: is `command` callable while the session is in `state`? `false` for any
@@ -700,6 +703,69 @@ pub struct DeleteVariantOut {
     pub ok: bool,
 }
 
+/// api.md §4 `ShareKind`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ShareKind {
+    ExportToPerson,
+    ShareToAi,
+}
+
+/// api.md §4 `ShareRequestDto`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ShareRequestDto {
+    pub kind: ShareKind,
+    pub doc_ids: Vec<String>,
+    pub per_doc_overrides: HashMap<String, Vec<FieldDecisionDto>>,
+    pub applied_variant_ids: HashMap<String, String>,
+    pub recipient_note: Option<String>,
+    pub ai_instruction: Option<String>,
+}
+
+/// One document's keep/redact ids on a share preview (api.md §5.6 `manifest[]`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ShareManifestEntry {
+    pub doc_id: String,
+    pub visible_field_ids: Vec<String>,
+    pub redacted_field_ids: Vec<String>,
+}
+
+/// `preview_share` In: `{ request }` (api.md §5.6).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PreviewShareIn {
+    pub request: ShareRequestDto,
+}
+
+/// `preview_share` Out (api.md §5.6 `SharePreview`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SharePreview {
+    pub preview_token: String,
+    pub expires_at: String,
+    pub kind: ShareKind,
+    pub overrides_in_effect: bool,
+    pub suggested_filename: Option<String>,
+    pub pdf_bytes: Option<Vec<u8>>,
+    pub ai_payload_preview: Option<String>,
+    pub manifest: Vec<ShareManifestEntry>,
+    pub no_originals_left_device: Vec<bool>,
+}
+
+/// `commit_share` In: `{ preview_token }` (api.md §5.6).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CommitShareIn {
+    pub preview_token: String,
+}
+
+/// `commit_share` Out (api.md §5.6). AI fields stay null until W27.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CommitShareOut {
+    pub kind: ShareKind,
+    pub pdf_bytes: Option<Vec<u8>>,
+    pub suggested_filename: Option<String>,
+    pub output_text: Option<String>,
+    pub audit_event_id: u64,
+}
+
 /// In-process approval session (data-model §5.10). Lives on [`OpenSession`] so lock drops it.
 #[derive(Debug)]
 struct ApprovalSession {
@@ -842,6 +908,21 @@ struct OpenSession {
     pending_bodies: HashMap<String, Document>,
     /// One active approval session (design §2.3). `None` when idle.
     approval: Option<ApprovalSession>,
+    /// One live share preview (api.md §5.6). Dropped on lock, replace, commit, or expiry.
+    preview: Option<LivePreview>,
+}
+
+/// In-RAM preview token (data-model §5.4: not persisted).
+#[derive(Debug)]
+struct LivePreview {
+    token: String,
+    expires_at_unix_ms: u64,
+    kind: ShareKind,
+    pdf_bytes: Vec<u8>,
+    suggested_filename: String,
+    doc_ids: Vec<String>,
+    recipient_note: Option<String>,
+    no_originals_left_device: Vec<bool>,
 }
 
 /// The in-process session and account command surface.
@@ -1238,6 +1319,7 @@ impl SessionManager {
             appends_since_persist: 0,
             pending_bodies: HashMap::new(),
             approval: None,
+            preview: None,
         });
         Ok(CreateAccountOut {
             account_id,
@@ -1410,6 +1492,7 @@ impl SessionManager {
             appends_since_persist: 0,
             pending_bodies: HashMap::new(),
             approval: None,
+            preview: None,
         };
 
         (open_session, out_state, out_integrity, head_to_persist)
@@ -2417,6 +2500,168 @@ impl SessionManager {
             return Err(ApiError::not_found());
         }
         Ok(DeleteVariantOut { ok: true })
+    }
+
+    /// `preview_share` — api.md §5.6; person-export only in W24 (Cloud AI is W27).
+    ///
+    /// Materialises the redacted PDF in RAM and issues a one-live-token preview. A second
+    /// preview replaces the first. Overrides/variants are ignored until W26.
+    ///
+    /// # Errors
+    /// - `not_in_session` unless unlocked.
+    /// - `invalid_input` if `doc_ids` is empty or `ai_instruction` is set on export.
+    /// - `not_found` / `not_approved` per document.
+    /// - `cloud_ai_not_configured` for `share_to_ai` (W27).
+    pub fn preview_share(&mut self, input: PreviewShareIn) -> Result<SharePreview, ApiError> {
+        if !command_allowed("preview_share", self.state()) {
+            return Err(ApiError::not_in_session());
+        }
+        let request = input.request;
+        match request.kind {
+            ShareKind::ShareToAi => return Err(ApiError::cloud_ai_not_configured()),
+            ShareKind::ExportToPerson => {}
+        }
+        if request.ai_instruction.is_some() {
+            return Err(ApiError::invalid_input(
+                "ai_instruction must be null for export_to_person",
+            ));
+        }
+        if request.doc_ids.is_empty() {
+            return Err(ApiError::invalid_input("doc_ids must not be empty"));
+        }
+        let now = now_unix_ms();
+        let mut pages = Vec::new();
+        let mut filenames = Vec::new();
+        let mut manifest = Vec::new();
+        let mut no_originals = Vec::new();
+        {
+            let open = self.require_open()?;
+            for doc_id in &request.doc_ids {
+                let meta = self
+                    .documents
+                    .load_meta(&open.master, doc_id)
+                    .map_err(map_catalog_err)?
+                    .ok_or_else(ApiError::not_found)?;
+                let approved = self
+                    .documents
+                    .load_approved(&open.master, doc_id)
+                    .map_err(map_catalog_err)?
+                    .ok_or_else(ApiError::not_approved)?;
+                let mut visible = Vec::new();
+                let mut redacted = Vec::new();
+                for d in &approved.decisions {
+                    match d.decision {
+                        crate::catalog::FieldDecisionKind::KeepVisible => {
+                            visible.push(d.field.id.clone())
+                        }
+                        crate::catalog::FieldDecisionKind::Redact => redacted.push(d.field.id.clone()),
+                    }
+                }
+                manifest.push(ShareManifestEntry {
+                    doc_id: doc_id.clone(),
+                    visible_field_ids: visible,
+                    redacted_field_ids: redacted,
+                });
+                no_originals.push(true);
+                filenames.push(meta.source_filename);
+                pages.extend(approved.redacted_content.pages);
+            }
+        }
+        let filename = crate::share::suggested_filename(&filenames, now);
+        let pdf_bytes = crate::share::assemble_export_pdf(&pages, &filename, now);
+        let token = uuid::Uuid::new_v4().to_string();
+        let expires_at_unix_ms = now.saturating_add(crate::share::preview_ttl_ms());
+        let expires_at = crate::account::format_rfc3339((expires_at_unix_ms / 1000) as i64);
+        let preview = SharePreview {
+            preview_token: token.clone(),
+            expires_at,
+            kind: ShareKind::ExportToPerson,
+            overrides_in_effect: false,
+            suggested_filename: Some(filename.clone()),
+            pdf_bytes: Some(pdf_bytes.clone()),
+            ai_payload_preview: None,
+            manifest,
+            no_originals_left_device: no_originals.clone(),
+        };
+        if let Some(open) = self.open.as_mut() {
+            open.preview = Some(LivePreview {
+                token,
+                expires_at_unix_ms,
+                kind: ShareKind::ExportToPerson,
+                pdf_bytes,
+                suggested_filename: filename,
+                doc_ids: request.doc_ids,
+                recipient_note: request.recipient_note,
+                no_originals_left_device: no_originals,
+            });
+        }
+        Ok(preview)
+    }
+
+    /// `commit_share` — api.md §5.6. Returns byte-identical `pdf_bytes` and appends audit
+    /// `share`. Drops the token.
+    ///
+    /// # Errors
+    /// - `not_in_session` unless unlocked.
+    /// - `preview_expired` if the token is missing, replaced, or past TTL.
+    pub fn commit_share(&mut self, input: CommitShareIn) -> Result<CommitShareOut, ApiError> {
+        if !command_allowed("commit_share", self.state()) {
+            return Err(ApiError::not_in_session());
+        }
+        let now = now_unix_ms();
+        let live = self
+            .open
+            .as_ref()
+            .and_then(|o| o.preview.as_ref())
+            .ok_or_else(ApiError::preview_expired)?;
+        if live.token != input.preview_token || now > live.expires_at_unix_ms {
+            return Err(ApiError::preview_expired());
+        }
+        let kind = live.kind;
+        let pdf_bytes = live.pdf_bytes.clone();
+        let suggested_filename = live.suggested_filename.clone();
+        let doc_ids = live.doc_ids.clone();
+        let recipient_note = live.recipient_note.clone();
+        let all_no_originals = live.no_originals_left_device.iter().all(|b| *b);
+        let payload = serde_json::json!({
+            "kind": "export_to_person",
+            "recipient_note": recipient_note,
+            "endpoint_host": null,
+            "doc_ids": doc_ids,
+            "error_class": null,
+            "has_ai_instruction": false,
+        });
+        let payload_jcs = serde_json::to_string(&payload)
+            .map_err(|_| ApiError::internal("audit payload encode failed"))?;
+        let audit_doc = if doc_ids.len() == 1 {
+            Some(doc_ids[0].as_str())
+        } else {
+            None
+        };
+        let flag = if all_no_originals {
+            OriginalsFlag::True
+        } else {
+            OriginalsFlag::False
+        };
+        self.record_audit_append(EventType::Share, audit_doc, flag, &payload_jcs)?;
+        let audit_event_id = self.require_open()?.live_head.sequence;
+        if let Some(open) = self.open.as_mut() {
+            open.preview = None;
+        }
+        Ok(CommitShareOut {
+            kind,
+            pdf_bytes: Some(pdf_bytes),
+            suggested_filename: Some(suggested_filename),
+            output_text: None,
+            audit_event_id,
+        })
+    }
+
+    /// Test helper: force the live preview past TTL (api.md 10-minute expiry).
+    pub fn test_only_expire_preview(&mut self) {
+        if let Some(p) = self.open.as_mut().and_then(|o| o.preview.as_mut()) {
+            p.expires_at_unix_ms = 0;
+        }
     }
 
     /// Page IR for approval: this-unlock `pending_bodies`, or a retain original reconstructed

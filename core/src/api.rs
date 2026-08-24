@@ -237,6 +237,21 @@ impl ApiError {
         )
     }
 
+    /// api.md §3: `preview_token` missing, expired, or replaced.
+    #[must_use]
+    pub fn preview_expired() -> Self {
+        Self::new(ErrorCode::PreviewExpired, "preview token expired")
+    }
+
+    /// api.md §3: Cloud AI share/test without a stored key.
+    #[must_use]
+    pub fn cloud_ai_not_configured() -> Self {
+        Self::new(
+            ErrorCode::CloudAiNotConfigured,
+            "cloud ai is not configured",
+        )
+    }
+
     /// api.md §3: unexpected core failure; the class is non-secret.
     #[must_use]
     pub fn internal(message: &'static str) -> Self {

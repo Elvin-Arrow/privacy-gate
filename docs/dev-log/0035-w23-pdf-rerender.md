@@ -23,7 +23,7 @@ Explicitly **not** in this chunk: save dialog; plaintext `.txt` export; `preview
   extracted text; keep canary present; no `/Prev`; empty and multi-page docs.
 - `cargo test -p pg-core` green; `cargo clippy -p pg-core -- -D warnings` clean.
 
-Next: W24 — share preview + commit (export).
+Next: W25 — OQ-6 egress oracle.
 
 ## Related Documentation
 

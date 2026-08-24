@@ -176,8 +176,9 @@ may `open_approval` again). `W20` (`delete_document` — overwrite-and-drop wrap
 `W21` (`delete_retained_original` — idempotent; audit `discard_original` only when one
 existed). `W22` (`list_variants` / `get_variant` / `save_variant` / `delete_variant` —
 per-doc unique name; `get_variant` has no span text). `W23` (from-scratch PDF re-render
-from `redacted_content`; no `/Prev`; redacted canaries omitted). `W24` (share preview +
-commit) is next;
+from `redacted_content`; no `/Prev`; redacted canaries omitted). `W24` (`preview_share` /
+`commit_share` person-export; byte-identical commit PDF; suggested filename). `W25` (OQ-6
+egress oracle) is next;
 see `docs/dev-plan.md` for the full sequence and `docs/dev-log/` for what each completed
 chunk did and any problems hit along the way.
 

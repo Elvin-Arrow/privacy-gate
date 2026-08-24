@@ -42,6 +42,7 @@ diary. Each entry links to affected specs and decisions.
 - [0033-w21-delete-original](./0033-w21-delete-original.md) — W21: `delete_retained_original` idempotent; audit `discard_original` only when one existed. Variants are W22.
 - [0034-w22-variants](./0034-w22-variants.md) — W22: `list_variants` / `get_variant` / `save_variant` / `delete_variant`; per-doc unique name; no span text. PDF re-render is W23.
 - [0035-w23-pdf-rerender](./0035-w23-pdf-rerender.md) — W23: from-scratch PDF writer from `redacted_content`; redacted canary absent; no `/Prev`. Share preview is W24.
+- [0036-w24-share-export](./0036-w24-share-export.md) — W24: `preview_share` / `commit_share` person-export; byte-identical commit; filename + info dict. OQ-6 oracle is W25.
 
 ## Navigation
 
