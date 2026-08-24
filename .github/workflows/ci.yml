@@ -47,6 +47,9 @@ jobs:
       - name: Run frontend typecheck
         run: npm run check
 
+      - name: Run frontend unit tests
+        run: npm run test
+
   # Placeholder for future jobs (lint, security, etc.)
   build:
     name: Build

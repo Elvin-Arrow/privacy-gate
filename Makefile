@@ -1,4 +1,4 @@
-.PHONY: help shell build test check clean
+.PHONY: help shell build test check test-ui clean
 
 help:
 	@echo "Privacy Gate development targets:"
@@ -6,6 +6,7 @@ help:
 	@echo "  make build    - Build the Tauri app (debug)"
 	@echo "  make test     - Run cargo test for the Rust core"
 	@echo "  make check    - Run frontend typecheck (svelte-check)"
+	@echo "  make test-ui  - Run frontend unit tests (Vitest)"
 	@echo "  make clean    - Remove build artifacts"
 
 shell:
@@ -19,6 +20,9 @@ test:
 
 check:
 	docker compose run --rm dev npm run check
+
+test-ui:
+	docker compose run --rm dev npm run test
 
 clean:
 	docker compose run --rm dev sh -c "cargo clean && rm -rf node_modules target"

@@ -28,13 +28,14 @@ npm install                        # first time only
 cargo test                         # all Rust tests (pg-core + privacy-gate crates)
 cargo test -p pg-core <test_name>  # a single test in the core crate
 npm run check                      # Svelte/TypeScript typecheck
+npm run test                       # Vitest + Testing Library (frontend unit tests)
 npm run dev                        # Vite dev server (frontend only)
 npm run tauri:dev                  # full Tauri app, dev mode
 npm run tauri:build                # full Tauri app, release build
 ```
 
-Makefile wraps the common ones (`make test`, `make check`, `make build`, `make clean`, `make help`),
-each running inside the container automatically.
+Makefile wraps the common ones (`make test`, `make check`, `make test-ui`, `make build`, `make clean`,
+`make help`), each running inside the container automatically.
 
 The container mounts the repo at `/workspace` and caches the Cargo registry, Cargo target dir, and
 npm packages in named volumes — first run is slow (image build + full fetch), later runs are fast.
@@ -186,13 +187,18 @@ named variants applied at `preview_share` via `overlap::redact_with_overrides`; 
 redirects refused, failed sends still audited), `W28` (`list_audit_events` — filtered/
 paginated read path over the audit chain; `AuditEventDto` never carries
 `entry_signature`/`prev_entry_hash`; available `unlocked` and `degraded_integrity`, verified
-prefix only), and `W29` (Tauri IPC, CSP, events — `src-tauri/src/commands.rs`'s 32 thin
+prefix only), `W29` (Tauri IPC, CSP, events — `src-tauri/src/commands.rs`'s 32 thin
 command shims over `SessionManager`, a single dispatcher gate re-using
 `session::command_allowed`, `pg://detect-progress`/`pg://session-changed` event
 forwarding, and a capability ACL + CSP matching `docs/specs/ui.md` §3; not
-mutation-gated). `W30` (UI: first run, lock, unlock) is next; see `docs/dev-plan.md` for
-the full sequence and `docs/dev-log/` for what each completed chunk did and any problems
-hit along the way.
+mutation-gated), and `W30` (UI: first run, lock, unlock — the first frontend chunk with
+real tests: `src/App.svelte` routes on `SessionState` with plain Svelte 5 runes, no router
+dependency; `src/screens/{FirstRun,Unlock,Integrity,Vault}Screen.svelte`; `src/lib/api.ts`
+(typed `invoke` wrapper) and `src/lib/copy.ts` (canonical copy, ui.md §15); Vitest +
+`@testing-library/svelte` newly wired via `vitest.config.ts`/`src/test/setup.ts`, `invoke`/
+event/dialog/fs mocked at the test level). `W31` (UI: Settings) is next; see
+`docs/dev-plan.md` for the full sequence and `docs/dev-log/` for what each completed chunk
+did and any problems hit along the way.
 
 ## Agent skills
 

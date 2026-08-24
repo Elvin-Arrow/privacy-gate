@@ -1,0 +1,29 @@
+/* Material Design 3 tokens (design/mockups/_tokens.css.txt), trimmed to what W30's screens
+ * use. No CDN font (C-UI-7 / ui.md §17): system font stack stands in for the mockups'
+ * Roboto import. */
+:root {
+  --md-primary: oklch(45% 0.15 264);
+  --md-primary-dim: oklch(38% 0.14 267);
+  --md-on-primary: oklch(99% 0 0);
+  --md-primary-container: oklch(91% 0.045 264);
+  --md-on-primary-container: oklch(24% 0.09 264);
+  --md-error: oklch(50% 0.19 25);
+  --md-on-error: oklch(99% 0 0);
+  --md-error-container: oklch(92% 0.06 25);
+  --md-on-error-container: oklch(27% 0.1 25);
+  --md-surface: oklch(98.5% 0.004 264);
+  --md-surface-container-lowest: oklch(100% 0 0);
+  --md-surface-container-low: oklch(97.3% 0.004 264);
+  --md-surface-container: oklch(95.8% 0.005 264);
+  --md-on-surface: oklch(20% 0.012 264);
+  --md-on-surface-variant: oklch(39% 0.016 264);
+  --md-outline: oklch(56% 0.014 264);
+  --md-outline-variant: oklch(85% 0.008 264);
+  --md-radius-sm: 10px;
+  --md-radius-md: 16px;
+  --md-radius-lg: 22px;
+  --md-radius-xl: 32px;
+  --md-radius-full: 999px;
+  --md-elev-4: 0 8px 24px -8px rgba(0, 0, 0, 0.16), 0 2px 6px rgba(0, 0, 0, 0.08);
+  --md-font: -apple-system, 'Segoe UI', system-ui, sans-serif;
+}

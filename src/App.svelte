@@ -1,85 +1,90 @@
 <script lang="ts">
-  import { invoke } from '@tauri-apps/api/core'
   import { onMount } from 'svelte'
+  import { listen, type UnlistenFn } from '@tauri-apps/api/event'
+  import {
+    getSessionState,
+    lock,
+    SESSION_CHANGED_EVENT,
+    type CreateAccountOut,
+    type IntegrityReport,
+    type SessionState,
+    type SessionStateOut,
+    type UnlockOut,
+  } from './lib/api'
+  import FirstRunScreen from './screens/FirstRunScreen.svelte'
+  import UnlockScreen from './screens/UnlockScreen.svelte'
+  import IntegrityScreen from './screens/IntegrityScreen.svelte'
+  import VaultScreen from './screens/VaultScreen.svelte'
 
-  let loading = true
-  let sessionState: string | null = null
-  let error: string | null = null
-
-  async function getSessionState() {
-    try {
-      const result = await invoke<{ state: string }>('get_session_state')
-      sessionState = result.state
-    } catch (err) {
-      error = `Failed to get session state: ${err}`
-    } finally {
-      loading = false
-    }
-  }
+  // ui.md §4: no client-side router for four screens — plain reactive state switching on
+  // `SessionState` is enough. ui.md §14: chrome first paint is static and gated on
+  // `get_session_state` only, so this is the one command `onMount` awaits before any
+  // screen renders.
+  let sessionState = $state<SessionState | null>(null)
+  let integrity = $state<IntegrityReport | null>(null)
 
   onMount(() => {
+    let unlisten: UnlistenFn | undefined
+
     getSessionState()
+      .then((out) => {
+        sessionState = out.state
+      })
+      .catch(() => {
+        // get_session_state has no gate and no documented failure mode; if the IPC call
+        // itself fails there is nothing more specific to show than staying on the loading
+        // state indefinitely, which is preferable to guessing a session state.
+      })
+
+    // W29 already emits this event; wiring the listener is cheap and keeps `sessionState`
+    // in sync with an out-of-band transition (api.md §6). It intentionally never sets
+    // `integrity`: the event payload (`SessionStateOut`) carries no `IntegrityReport`, so
+    // the `unlock` → `degraded_integrity` transition itself is still handled by
+    // `handleUnlocked`'s direct invoke response, which does carry the report.
+    listen<SessionStateOut>(SESSION_CHANGED_EVENT, (event) => {
+      sessionState = event.payload.state
+    })
+      .then((fn) => {
+        unlisten = fn
+      })
+      .catch(() => {
+        // No event surface in this test/dev environment; direct invoke responses already
+        // drive navigation, so this is not fatal.
+      })
+
+    return () => {
+      unlisten?.()
+    }
   })
+
+  // ui.md §3.3: window title is "Privacy Gate" or "Privacy Gate — Locked" only — never
+  // document content.
+  $effect(() => {
+    document.title = sessionState === 'locked' ? 'Privacy Gate — Locked' : 'Privacy Gate'
+  })
+
+  function handleAccountCreated(out: CreateAccountOut) {
+    sessionState = out.state
+  }
+
+  function handleUnlocked(out: UnlockOut) {
+    sessionState = out.state
+    integrity = out.integrity
+  }
+
+  async function handleLock() {
+    const out = await lock()
+    sessionState = out.state
+    integrity = null
+  }
 </script>
 
-<style>
-  :global(body) {
-    margin: 0;
-    padding: 0;
-    font-family: -apple-system, 'Segoe UI', sans-serif;
-  }
-
-  .container {
-    width: 100%;
-    height: 100vh;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: #f5f5f5;
-  }
-
-  .content {
-    text-align: center;
-    padding: 2rem;
-    background: white;
-    border-radius: 8px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-    max-width: 600px;
-  }
-
-  h1 {
-    margin: 0 0 1rem 0;
-    color: #333;
-  }
-
-  p {
-    margin: 0.5rem 0;
-    color: #666;
-  }
-
-  .error {
-    color: #d32f2f;
-    padding: 1rem;
-    background: #ffebee;
-    border-radius: 4px;
-    margin-top: 1rem;
-  }
-
-  .loading {
-    color: #999;
-  }
-</style>
-
-<div class="container">
-  <div class="content">
-    <h1>Privacy Gate</h1>
-    {#if loading}
-      <p class="loading">Initializing...</p>
-    {:else if error}
-      <p class="error">{error}</p>
-    {:else}
-      <p>Session state: <strong>{sessionState}</strong></p>
-      <p>App is ready.</p>
-    {/if}
-  </div>
-</div>
+{#if sessionState === 'first_run'}
+  <FirstRunScreen onSuccess={handleAccountCreated} />
+{:else if sessionState === 'locked'}
+  <UnlockScreen onUnlocked={handleUnlocked} />
+{:else if sessionState === 'degraded_integrity'}
+  <IntegrityScreen onLock={handleLock} />
+{:else if sessionState === 'unlocked'}
+  <VaultScreen onLock={handleLock} />
+{/if}
