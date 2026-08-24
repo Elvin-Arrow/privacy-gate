@@ -32,6 +32,7 @@ diary. Each entry links to affected specs and decisions.
 - [0023-w13-pattern-pack-uk](./0023-w13-pattern-pack-uk.md) — W13: `pg-patterns-uk-v1` (`PatternsUkV1`) goldens for NI/sort/account plus NHS/email/phone/IBAN/Luhn; PDF/JSON keywords are not hits; stub remains the import default.
 - [0024-w14-detect-progress](./0024-w14-detect-progress.md) — W14: in-process `pg://detect-progress` (`ProgressSink`); monotonic `fraction` 0→1 around `detect`; never 1.0 before detect returns. UI bar is W32; Tauri emit is W29.
 - [0025-w15a-hybrid-onnx](./0025-w15a-hybrid-onnx.md) — W15a: `pg-hybrid-v1` (`HybridV1` = W13 patterns + pinned NER stage); mismatched SHA-256 fails NER closed; stub remains the import default; nightly pin job defined. Weights not vendored.
+- [0026-w15b-ollama-backend](./0026-w15b-ollama-backend.md) — W15b: `pg-hybrid-ollama-v1` (loopback HTTP, handshake/allowlist/digest, verify-then-trust offsets); selectable via `with_detector`; stub remains the import default. Digest/context-window pins recorded as `None` until a real-Ollama nightly.
 
 ## Navigation
 

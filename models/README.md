@@ -28,6 +28,13 @@ lands:
 
 Do not download weights at detection time. Do not re-pin silently on mismatch.
 
+## Ollama tag pin (architecture §10.1.2)
+
+Optional backend `pg-hybrid-ollama-v1` allowlists **`gemma4:e2b`**. The Ollama-reported
+digest is `pg_core::detector::OLLAMA_GEMMA4_E2B_DIGEST` (`None` until a nightly golden
+with a real daemon records it). `GEMMA4_E2B_CONTEXT_TOKENS` is likewise `None` until
+that job verifies the tag's context window (architecture §10.1.5).
+
 ## Layout
 
 ```

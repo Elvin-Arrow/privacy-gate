@@ -163,8 +163,10 @@ architecture §6.2 audit-persist cadence), and `W11` (retention-confirmed gate o
 default). `W14` (`pg://detect-progress` — `ProgressSink` on `SessionManager`;
 synchronous 0→1 around detect). `W15a` (hybrid ONNX `pg-hybrid-v1` — `HybridV1` in
 `core/src/detector/hybrid.rs`; SHA-256 pin; stub remains the import default). `W15b`
-(Ollama backend) is next; see `docs/dev-plan.md` for the full sequence and `docs/dev-log/`
-for what each completed chunk did and any problems hit along the way.
+(optional Ollama backend `pg-hybrid-ollama-v1` — `core/src/detector/ollama.rs`; loopback
+HTTP, handshake/allowlist/digest, verify-then-trust offsets). `W15c` (backend selection)
+is next; see `docs/dev-plan.md` for the full sequence and `docs/dev-log/` for what each
+completed chunk did and any problems hit along the way.
 
 ## Agent skills
 

@@ -10,7 +10,9 @@
 //! stage. W15a adds [`HybridV1`] (`pg-hybrid-v1`) — that pack plus an on-device NER stage
 //! behind a SHA-256 pin ([`verify_model_pin`]). Neither is the import default (dev-plan
 //! W15a: "tests keep stub for AC-1..AC-4"); `SessionManager::with_detector` selects them.
-//! Real GLiNER weights are not in this crate (PR may skip them); Ollama is W15b.
+//! Real GLiNER weights are not in this crate (PR may skip them); W15b adds
+//! [`HybridOllamaV1`] (`pg-hybrid-ollama-v1`) as a selectable backend — not the import
+//! default (W15c wires selection).
 //!
 //! # What the stub actually does
 //!
@@ -31,11 +33,17 @@
 //! "Third-party plugin / WASM tests → later phase").
 
 mod hybrid;
+mod ollama;
 mod patterns_uk;
 
 pub use hybrid::{
     verify_model_pin, HybridV1, NerStage, NerStageError, PinMismatch, HYBRID_V1_ID,
     NER_PII_ONNX_SHA256,
+};
+pub use ollama::{
+    verify_chunk_entity, AllowlistEntry, FallbackReason, HybridOllamaV1, OllamaClient,
+    OllamaDetectOutcome, GEMMA4_E2B_CONTEXT_TOKENS, HYBRID_OLLAMA_V1_ID, OLLAMA_ALLOWLISTED_TAG,
+    OLLAMA_GEMMA4_E2B_DIGEST, OFFSET_REJECT_THRESHOLD,
 };
 pub use patterns_uk::{PatternsUkV1, PATTERNS_UK_V1_ID};
 

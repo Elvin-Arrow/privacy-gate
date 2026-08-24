@@ -509,10 +509,11 @@ replacing the ONNX NER stage for that document, never mixed per-field with it.
   (`HTTP_PROXY`, `ALL_PROXY`, `NO_PROXY`, etc.) explicitly disabled — mirrors §9.2's existing
   "no ambient proxy credentials from the app" rule for Cloud AI.
 - **Handshake before content.** Before any document text is sent, `GET /api/tags` (probe,
-  200 ms timeout) and `GET /api/show` (model detail) responses are checked against Ollama's
-  documented response shape and the pinned digest (§10.1.2). A listener that does not speak
-  Ollama's actual API — intentionally or by accident — fails this check and the app falls back
-  to `pg-hybrid-v1`; document text is never sent to an unverified listener.
+  200 ms timeout) and `POST /api/show` (model detail — Ollama's documented method; the body
+  is `{"model": "<tag>"}`) responses are checked against Ollama's documented response shape
+  and the pinned digest (§10.1.2). A listener that does not speak Ollama's actual API —
+  intentionally or by accident — fails this check and the app falls back to `pg-hybrid-v1`;
+  document text is never sent to an unverified listener.
 - This is a **mitigation, not a guarantee**: a sufficiently capable local process that both
   binds `127.0.0.1:11434` *and* replays a byte-correct Ollama API before the real Ollama
   claims the port could still intercept a detect call. This residual is accepted the same way

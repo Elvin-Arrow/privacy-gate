@@ -33,3 +33,33 @@ jobs:
 
       - name: Hybrid fixture goldens and pin check
         run: cargo test -p pg-core --test hybrid_w15a -- --nocapture
+
+  ollama-golden:
+    name: Ollama golden (informational without daemon)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config \
+            libssl-dev
+
+      - name: Mock-backed §7.4 suite (always)
+        run: cargo test -p pg-core --test ollama_w15b -- --nocapture
+
+      - name: Real-Ollama handshake (informational)
+        run: |
+          if ! command -v ollama >/dev/null 2>&1; then
+            echo "informational skip: ollama not on runner (decision 0009 / testing.md §11)"
+            exit 0
+          fi
+          cargo test -p pg-core --test ollama_w15b nightly_real_ollama -- --ignored --nocapture

@@ -52,6 +52,12 @@ base64 = "0.22"
 # types, not the regex text). Standard crate; expressions live with the pack.
 regex = "1"
 
+# W15b: Ollama loopback client (architecture §10.1.1). Same stack as Cloud AI
+# (architecture §9.2): reqwest + rustls. `no_proxy` + IP-literal URLs; blocking
+# because `Detector::detect` is synchronous. Default features pulled native-tls
+# and ambient proxy support we do not want.
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+
 [dev-dependencies]
 # Longhand RFC 5869 reference used by the HKDF known-answer tests, so the test
 # does not simply mirror the production call.

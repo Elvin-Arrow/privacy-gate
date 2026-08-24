@@ -24,9 +24,10 @@
 //! - [`catalog`] — the document catalog: `DocumentMeta`/`OriginalRecord` envelope storage,
 //!   `DetectedField` (W10, data-model §5.1, §6.1–§6.2).
 //! - [`detector`] — Detector host + stub (`StubDetector`, W12), pattern pack
-//!   [`detector::PatternsUkV1`] (`pg-patterns-uk-v1`, W13), and hybrid
-//!   [`detector::HybridV1`] (`pg-hybrid-v1`, W15a). Stub remains the import default;
-//!   Ollama is W15b.
+//!   [`detector::PatternsUkV1`] (`pg-patterns-uk-v1`, W13), hybrid
+//!   [`detector::HybridV1`] (`pg-hybrid-v1`, W15a), and optional Ollama host
+//!   [`detector::HybridOllamaV1`] (`pg-hybrid-ollama-v1`, W15b). Stub remains the
+//!   import default; backend selection is W15c.
 
 pub mod account;
 pub mod api;
