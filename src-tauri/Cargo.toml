@@ -19,6 +19,13 @@ tracing-subscriber = "^0.3"
 # Core crate (from workspace)
 pg-core = { path = "../core" }
 
+[dev-dependencies]
+tempfile = "3.27.0"
+# Additive feature on the same dependency: unified into the normal `tauri` build only for
+# test targets, so `tauri::test` (mock_builder/mock_context/get_ipc_response/MockRuntime)
+# exists in `#[cfg(test)]` code without shipping test scaffolding in the real binary.
+tauri = { version = "2", features = ["test"] }
+
 [profile.release]
 opt-level = "z"
 lto = true

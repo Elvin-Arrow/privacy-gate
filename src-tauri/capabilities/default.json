@@ -1,21 +1,23 @@
 {
   "identifier": "default",
-  "description": "Default capabilities for Privacy Gate webview",
+  "description": "Default capabilities for Privacy Gate webview (api.md §8, ui.md §3.2). W29: grants the two events, save-only dialog, and write-only in-memory-bytes fs; every Tauri command this app registers is app-defined (invoke_handler's generate_handler! list, not this ACL) and reachable once core:default grants IPC at all — see src-tauri/src/main.rs. Trailing entries under \"deny\" for http/shell/dialog-open are trip wires: no HTTP or shell plugin is a dependency of this crate at all (Cloud AI HTTP is Rust-side only via reqwest in pg-core, architecture §9.2), so those permissions do not currently exist to grant; listing them denied means adding either plugin later for an unrelated reason does not silently open this webview's capability surface.",
   "windows": ["main"],
   "permissions": [
     "core:default",
     "core:event:allow-listen",
-    "core:event:allow-emit",
     "dialog:allow-save",
     "fs:allow-write"
   ],
   "deny": [
     "fs:allow-read",
     "fs:allow-read-dir",
+    "fs:allow-remove",
+    "fs:allow-exists",
+    "fs:allow-watch",
+    "dialog:allow-open",
     "http:default",
     "shell:allow-execute",
     "shell:allow-kill",
-    "shell:allow-open",
-    "dialog:allow-open"
+    "shell:allow-open"
   ]
 }
