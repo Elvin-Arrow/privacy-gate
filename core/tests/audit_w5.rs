@@ -491,6 +491,7 @@ fn degraded_session_cannot_reach_unimplemented_document_commands() {
         "open_approval",
         "set_field_decisions",
         "submit_approval",
+        "abort_approval",
         "preview_share",
         "commit_share",
     ] {

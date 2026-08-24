@@ -248,6 +248,14 @@ pub trait DocumentStore: Send + Sync {
         master: &VaultMasterKey,
         doc_id: &str,
     ) -> Result<Option<OriginalRecord>, CatalogError>;
+
+    /// Remove an unapproved document and its kind=8 / kind=2 artifacts (data-model §8:
+    /// abort/lock while discard and not approved). No-op if `doc_id` is already absent.
+    /// Refuses if a canonical approved version exists (that path is W20 `delete_document`).
+    ///
+    /// # Errors
+    /// [`CatalogError::Backend`] on I/O/backend failure, or if the document is approved.
+    fn drop_unapproved(&self, doc_id: &str) -> Result<(), CatalogError>;
 }
 
 /// The W2–W9-era no-op backend. Exists so every constructor that predates W10 keeps
@@ -299,6 +307,9 @@ impl DocumentStore for NullDocumentStore {
         _doc_id: &str,
     ) -> Result<Option<OriginalRecord>, CatalogError> {
         Ok(None)
+    }
+    fn drop_unapproved(&self, _doc_id: &str) -> Result<(), CatalogError> {
+        Err(CatalogError::Backend("no document store configured"))
     }
 }
 

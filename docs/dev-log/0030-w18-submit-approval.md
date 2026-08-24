@@ -41,7 +41,7 @@ Per the [agent roster](../agent-roster.md), W18 is Opus tier (AC-1 core).
   audit payload without canaries.
 - `cargo test -p pg-core` green; `cargo clippy -p pg-core -- -D warnings` clean.
 
-Next: W19 — `abort_approval` and lock vs retention.
+Next: W20 — `delete_document` (DEK destroy).
 
 ## Related Documentation
 

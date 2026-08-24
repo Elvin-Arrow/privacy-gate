@@ -231,9 +231,14 @@ fn list_documents_is_newest_import_first() {
 
 /// The ordering must survive a lock/unlock cycle — it isn't an artifact of in-memory
 /// insertion order that happens to look right before anything round-trips through SQL.
+/// Retain is required: lock drops unapproved discard rows (data-model §8 / W19).
 #[test]
 fn newest_first_ordering_survives_lock_and_unlock() {
     let (mut mgr, _dir) = fresh_confirmed();
+    mgr.set_retention_default(SetRetentionDefaultIn {
+        policy: RetentionPolicy::Retain,
+    })
+    .expect("set retain so catalog rows survive lock");
     mgr.import_document(import_in("first.txt", b"one")).expect("import 1");
     let second = mgr.import_document(import_in("second.txt", b"two")).expect("import 2");
     mgr.lock().expect("lock");

@@ -13,8 +13,8 @@
 //! (W10)")
 //!
 //! Approval commands (`open_approval` / `get_approval_view` / `set_field_decisions`, W16;
-//! `submit_approval`, W18) hold one RAM session on [`OpenSession`]. Abort/lock catalog
-//! rules are W19.
+//! `submit_approval`, W18; `abort_approval`, W19) hold one RAM session on [`OpenSession`].
+//! Lock drops unapproved discard catalog rows (data-model §8).
 //! `detector_preference` is read and written by W15c's commands and consulted on each
 //! `import_document` detect (architecture §10.1.3) — not cached at unlock.
 //!
@@ -228,6 +228,7 @@ const SESSION_TABLE: &[(&str, &[SessionState])] = &[
     ("get_approval_view", &[SessionState::Unlocked]),
     ("set_field_decisions", &[SessionState::Unlocked]),
     ("submit_approval", &[SessionState::Unlocked]),
+    ("abort_approval", &[SessionState::Unlocked]),
 ];
 
 /// api.md §2: is `command` callable while the session is in `state`? `false` for any
@@ -587,6 +588,18 @@ pub struct SubmitApprovalIn {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SubmitApprovalOut {
     pub summary: DocumentSummary,
+    pub lifecycle: ApprovalLifecycle,
+}
+
+/// `abort_approval` In: `{ approval_session_id }` (api.md §5.4).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AbortApprovalIn {
+    pub approval_session_id: String,
+}
+
+/// `abort_approval` Out: `{ lifecycle: "aborted" }`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AbortApprovalOut {
     pub lifecycle: ApprovalLifecycle,
 }
 
@@ -1341,6 +1354,12 @@ impl SessionManager {
             }
         }
 
+        // data-model §8: lock while discard and not approved deletes the catalog row
+        // (the RAM body is about to go with `OpenSession`). Retain unapproved rows stay.
+        if self.open.is_some() {
+            self.drop_unapproved_discards()?;
+        }
+
         // Explicit drop rather than letting it fall out of scope, so the destruction is
         // the visible effect of the command.
         drop(self.open.take());
@@ -1862,15 +1881,17 @@ impl SessionManager {
         {
             return Err(ApiError::already_approved());
         }
+        if self.require_open()?.approval.is_some() {
+            return Err(ApiError::approval_busy());
+        }
+        let document = self.approval_document(&input.doc_id)?;
         let open = self.require_open_mut()?;
         if open.approval.is_some() {
             return Err(ApiError::approval_busy());
         }
-        let document = open
-            .pending_bodies
-            .get(&input.doc_id)
-            .cloned()
-            .ok_or_else(ApiError::not_found)?;
+        open.pending_bodies
+            .entry(input.doc_id.clone())
+            .or_insert_with(|| document.clone());
         let session = ApprovalSession {
             approval_session_id: uuid::Uuid::new_v4().to_string(),
             doc_id: input.doc_id,
@@ -2035,6 +2056,107 @@ impl SessionManager {
             summary,
             lifecycle: ApprovalLifecycle::Committed,
         })
+    }
+
+    /// `abort_approval` — api.md §5.4; data-model §8.
+    ///
+    /// No stored approved version. Retain: catalog and encrypted original remain, and the
+    /// caller may `open_approval` again. Discard: RAM original is dropped and the catalog
+    /// row is deleted.
+    ///
+    /// # Errors
+    /// - `not_in_session` unless unlocked.
+    /// - `not_found` if `approval_session_id` is not the active session.
+    pub fn abort_approval(&mut self, input: AbortApprovalIn) -> Result<AbortApprovalOut, ApiError> {
+        if !command_allowed("abort_approval", self.state()) {
+            return Err(ApiError::not_in_session());
+        }
+        let doc_id = {
+            let open = self.require_open()?;
+            let session = open.approval.as_ref().ok_or_else(ApiError::not_found)?;
+            if session.approval_session_id != input.approval_session_id {
+                return Err(ApiError::not_found());
+            }
+            session.doc_id.clone()
+        };
+        let retention = self
+            .documents
+            .load_meta(&self.require_open()?.master, &doc_id)
+            .map_err(map_catalog_err)?
+            .ok_or_else(ApiError::not_found)?
+            .retention;
+        if retention == EffectiveRetention::Discard {
+            self.documents
+                .drop_unapproved(&doc_id)
+                .map_err(map_catalog_err)?;
+        }
+        if let Some(open) = self.open.as_mut() {
+            open.approval = None;
+            if retention == EffectiveRetention::Discard {
+                open.pending_bodies.remove(&doc_id);
+            }
+        }
+        Ok(AbortApprovalOut {
+            lifecycle: ApprovalLifecycle::Aborted,
+        })
+    }
+
+    /// Page IR for approval: this-unlock `pending_bodies`, or a retain original reconstructed
+    /// from the vault after lock (api.md §5.4: retain may `open_approval` again).
+    fn approval_document(&self, doc_id: &str) -> Result<Document, ApiError> {
+        let open = self.require_open()?;
+        if let Some(doc) = open.pending_bodies.get(doc_id) {
+            return Ok(doc.clone());
+        }
+        let original = self
+            .documents
+            .load_original(&open.master, doc_id)
+            .map_err(map_catalog_err)?
+            .ok_or_else(ApiError::not_found)?;
+        let bytes = original.raw_bytes().map_err(map_catalog_err)?;
+        match original.source_format {
+            SourceFormat::Text => importer::import_text(&bytes, doc_id)
+                .map_err(|_| ApiError::internal("retained original reconstruct failed")),
+            SourceFormat::Pdf => importer::import_pdf(&bytes, doc_id)
+                .map_err(|_| ApiError::internal("retained original reconstruct failed")),
+        }
+    }
+
+    /// data-model §8: every unapproved discard document is removed before lock drops RAM.
+    fn drop_unapproved_discards(&mut self) -> Result<(), ApiError> {
+        let ids = self
+            .documents
+            .list_ids_newest_first()
+            .map_err(map_catalog_err)?;
+        let mut drop_ids = Vec::new();
+        {
+            let open = self.require_open()?;
+            for id in ids {
+                if self
+                    .documents
+                    .has_approved_version(&id)
+                    .map_err(map_catalog_err)?
+                {
+                    continue;
+                }
+                match self
+                    .documents
+                    .load_meta(&open.master, &id)
+                    .map_err(map_catalog_err)?
+                {
+                    Some(meta) if meta.retention == EffectiveRetention::Discard => {
+                        drop_ids.push(id);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        for id in drop_ids {
+            self.documents
+                .drop_unapproved(&id)
+                .map_err(map_catalog_err)?;
+        }
+        Ok(())
     }
 
     /// Shared by `list_documents`/`get_document`: decrypt one document's meta and compose

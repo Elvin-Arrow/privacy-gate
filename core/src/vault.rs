@@ -947,6 +947,48 @@ impl DocumentStore for SqlCipherVault {
         let artifact_blob = WrappedBlob { nonce, ciphertext };
         crate::catalog::open_original(master, doc_id, &wrapped_dek, &artifact_blob).map(Some)
     }
+
+    fn drop_unapproved(&self, doc_id: &str) -> Result<(), CatalogError> {
+        self.with_conn_mut(|conn| {
+            let tx = conn
+                .transaction()
+                .map_err(|_| VaultError::Backend("could not start transaction"))?;
+            let row = tx
+                .query_row(
+                    "SELECT meta_artifact_id, original_artifact_id, approved_artifact_id
+                     FROM document WHERE doc_id = ?1",
+                    [doc_id],
+                    |r| {
+                        let meta: String = r.get(0)?;
+                        let original: Option<String> = r.get(1)?;
+                        let approved: Option<String> = r.get(2)?;
+                        Ok((meta, original, approved))
+                    },
+                )
+                .optional()
+                .map_err(|_| VaultError::Backend("drop_unapproved lookup failed"))?;
+            let Some((meta_id, original_id, approved_id)) = row else {
+                return Ok(());
+            };
+            if approved_id.is_some() {
+                return Err(VaultError::Backend("cannot drop an approved document"));
+            }
+            tx.execute("DELETE FROM variant WHERE doc_id = ?1", [doc_id])
+                .map_err(|_| VaultError::Backend("drop_unapproved variant delete failed"))?;
+            tx.execute("DELETE FROM document WHERE doc_id = ?1", [doc_id])
+                .map_err(|_| VaultError::Backend("drop_unapproved document delete failed"))?;
+            tx.execute("DELETE FROM artifact WHERE artifact_id = ?1", [meta_id])
+                .map_err(|_| VaultError::Backend("drop_unapproved meta delete failed"))?;
+            if let Some(oid) = original_id {
+                tx.execute("DELETE FROM artifact WHERE artifact_id = ?1", [oid])
+                    .map_err(|_| VaultError::Backend("drop_unapproved original delete failed"))?;
+            }
+            tx.commit()
+                .map_err(|_| VaultError::Backend("drop_unapproved commit failed"))?;
+            Ok(())
+        })
+        .map_err(catalog_err)
+    }
 }
 
 /// Preserve the real `VaultError` class (same reasoning as `account_store_err`/`audit_err`/

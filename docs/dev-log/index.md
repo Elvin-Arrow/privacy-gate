@@ -37,6 +37,7 @@ diary. Each entry links to affected specs and decisions.
 - [0028-w16-approval-session](./0028-w16-approval-session.md) — W16: `open_approval`/`get_approval_view`/`set_field_decisions`; one RAM session; span text only here (C-API-2); lifecycle `awaiting_decisions` | `decided`. Submit is W18.
 - [0029-w17-overlap](./0029-w17-overlap.md) — W17: design §3.5 overlap rule (`offset_is_redacted` / `redacted_ranges`); innermost keep; partial overlap redact-wins; table-driven + `proptest`. Submit is W18.
 - [0030-w18-submit-approval](./0030-w18-submit-approval.md) — W18: `submit_approval` writes canonical `ApprovedVersion` (kind=1 `redacted_content`); discard RAM original; audit `approve`; `already_approved`. Abort is W19.
+- [0031-w19-abort-lock](./0031-w19-abort-lock.md) — W19: `abort_approval` and lock vs retention; discard unapproved rows dropped; retain may reopen. Delete is W20.
 
 ## Navigation
 
