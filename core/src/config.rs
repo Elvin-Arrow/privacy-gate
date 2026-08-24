@@ -14,10 +14,9 @@
 //! # Scope fence (dev-plan.md W6 "Do not: first-import modal UI (W32); per-import override
 //! (W10)")
 //!
-//! `detector_preference` is part of `Config`'s on-disk shape (data-model §5.5) so a later
-//! chunk (W15c) never needs a format bump to add it — but no command in this chunk reads or
-//! writes it. `import_document` does not exist yet, so nothing here gates an import; that
-//! gate is W11.
+//! `detector_preference` is part of `Config`'s on-disk shape (data-model §5.5). W15c's
+//! `get_detector_preference` / `set_detector_preference` read and write it; this module
+//! only stores the field.
 
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
@@ -49,8 +48,8 @@ impl RetentionPolicy {
     }
 }
 
-/// data-model §5.5 / decision 0009: `"auto" | "bundled_only"`. Not read or written by any
-/// W6 command (see module scope fence); stored so the on-disk shape is final now.
+/// data-model §5.5 / decision 0009: `"auto" | "bundled_only"`. Session commands in
+/// [`crate::session`] read and write this; this module only stores the field.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DetectorPreference {

@@ -1,12 +1,10 @@
 //! `pg-hybrid-ollama-v1` — W13 patterns plus NER via a local Ollama server (W15b).
 //!
-//! architecture.md §10.1 / decision 0009. This host is **selectable** via
-//! `SessionManager::with_detector`; it is not `import_document`'s default (W15c).
-//! Handshake (tags + show + allowlist + digest) happens before any document text is
-//! sent. The HTTP client is IP-literal loopback only, no DNS, no ambient proxy, no
-//! redirects.
+//! architecture.md §10.1 / decision 0009. W15c's `"auto"` preference selects this host
+//! after a successful handshake; `"bundled_only"` never probes it. Handshake (tags + show
+//! + allowlist + digest) happens before any document text is sent.
 
-use std::net::SocketAddr;
+use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::time::Duration;
 
 use serde_json::{json, Value};
@@ -27,6 +25,23 @@ pub const OLLAMA_ALLOWLISTED_TAG: &str = "gemma4:e2b";
 /// `None` until a nightly golden records the real `/api/show` (or `/api/tags`) digest —
 /// an unrecorded pin must not silently accept a live model.
 pub const OLLAMA_GEMMA4_E2B_DIGEST: Option<&str> = None;
+
+/// Ollama's documented default. W15c probes this address on `"auto"` unless a test
+/// overrides it via [`crate::session::SessionManager::with_ollama_endpoint`].
+pub const OLLAMA_LOOPBACK_ADDR: SocketAddr =
+    SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 11434));
+
+/// Allowlist used in production. Empty while [`OLLAMA_GEMMA4_E2B_DIGEST`] is `None`, so
+/// a live unpinned daemon cannot be silently accepted.
+pub fn default_ollama_allowlist() -> Vec<AllowlistEntry> {
+    match OLLAMA_GEMMA4_E2B_DIGEST {
+        Some(digest) => vec![AllowlistEntry {
+            tag: OLLAMA_ALLOWLISTED_TAG,
+            digest,
+        }],
+        None => Vec::new(),
+    }
+}
 
 /// architecture §10.1.5: chunk size / overlap. Conservative byte bounds, **not** a claim
 /// about `gemma4:e2b`'s context window — that figure is [`GEMMA4_E2B_CONTEXT_TOKENS`]

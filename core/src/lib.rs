@@ -17,7 +17,8 @@
 //! - [`audit`] — the audit chain: canonical encoding v1, append, and replay verification
 //!   against a persisted `AuditHead` (W5, architecture §6, data-model §5.8–§5.9).
 //! - [`config`] — the global `Config` artifact: retention default + confirmation,
-//!   detector preference (field only; no command yet) (W6, data-model §5.5).
+//!   detector preference (`get_detector_preference` / `set_detector_preference`, W15c)
+//!   (W6/W15c, data-model §5.5).
 //! - [`importer`] — plain-text and PDF extraction: bytes to in-memory
 //!   `Document`/`Page`/`TextSpan` (W8/W9, design §2.1/§3.1, data-model §5.1). Library only;
 //!   no command yet.
@@ -26,8 +27,9 @@
 //! - [`detector`] — Detector host + stub (`StubDetector`, W12), pattern pack
 //!   [`detector::PatternsUkV1`] (`pg-patterns-uk-v1`, W13), hybrid
 //!   [`detector::HybridV1`] (`pg-hybrid-v1`, W15a), and optional Ollama host
-//!   [`detector::HybridOllamaV1`] (`pg-hybrid-ollama-v1`, W15b). Stub remains the
-//!   import default; backend selection is W15c.
+//!   [`detector::HybridOllamaV1`] (`pg-hybrid-ollama-v1`, W15b). `import_document` selects
+//!   between hybrid and Ollama per detect (W15c); `with_detector` installs the stub for
+//!   AC-1..AC-4.
 
 pub mod account;
 pub mod api;

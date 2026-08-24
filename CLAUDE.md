@@ -159,14 +159,16 @@ and `import_document`/`list_documents`/`get_document` — `core/src/catalog.rs`,
 architecture §6.2 audit-persist cadence), and `W11` (retention-confirmed gate on
 `import_document` — AC-6/AC-7). `W12` (detector host + stub — `StubDetector` in
 `core/src/detector/`, wired into `import_document`). `W13` (pattern pack
-`pg-patterns-uk-v1` — `core/src/detector/patterns_uk.rs`; stub remains the import
-default). `W14` (`pg://detect-progress` — `ProgressSink` on `SessionManager`;
-synchronous 0→1 around detect). `W15a` (hybrid ONNX `pg-hybrid-v1` — `HybridV1` in
-`core/src/detector/hybrid.rs`; SHA-256 pin; stub remains the import default). `W15b`
+`pg-patterns-uk-v1` — `core/src/detector/patterns_uk.rs`). `W14` (`pg://detect-progress`
+— `ProgressSink` on `SessionManager`; synchronous 0→1 around detect). `W15a` (hybrid ONNX
+`pg-hybrid-v1` — `HybridV1` in `core/src/detector/hybrid.rs`; SHA-256 pin). `W15b`
 (optional Ollama backend `pg-hybrid-ollama-v1` — `core/src/detector/ollama.rs`; loopback
-HTTP, handshake/allowlist/digest, verify-then-trust offsets). `W15c` (backend selection)
-is next; see `docs/dev-plan.md` for the full sequence and `docs/dev-log/` for what each
-completed chunk did and any problems hit along the way.
+HTTP, handshake/allowlist/digest, verify-then-trust offsets). `W15c` (backend selection —
+`get_detector_preference`/`set_detector_preference` in `core/src/session.rs`; per-detect
+choice between `pg-hybrid-v1` and `pg-hybrid-ollama-v1`; audit `detect` honesty; AC-1..AC-4
+keep the stub via `with_detector`). `W16`
+(approval session) is next; see `docs/dev-plan.md` for the full sequence and
+`docs/dev-log/` for what each completed chunk did and any problems hit along the way.
 
 ## Agent skills
 

@@ -187,7 +187,8 @@ fn fresh_confirmed() -> (SessionManager, tempfile::TempDir) {
     let config: Arc<dyn ConfigStore> = vault.clone();
     let documents: Arc<dyn DocumentStore> = vault;
     let mut mgr = SessionManager::new_full(keystore, accounts, backend, audit, config)
-        .with_documents(documents);
+        .with_documents(documents)
+        .with_detector(Arc::new(StubDetector));
     mgr.create_account(CreateAccountIn {
         display_name: "Alex".to_string(),
         passphrase: PASSPHRASE.to_string(),
@@ -205,7 +206,7 @@ fn fresh_confirmed() -> (SessionManager, tempfile::TempDir) {
 /// randomly generated per detection (see module docs); `detected_field_count` is the
 /// stable, API-visible signal `SessionManager` exposes.
 #[test]
-fn import_document_runs_the_stub_detector_by_default() {
+fn import_document_runs_the_stub_detector_when_installed() {
     let (mut mgr, _dir) = fresh_confirmed();
     let out = mgr
         .import_document(ImportDocumentIn {

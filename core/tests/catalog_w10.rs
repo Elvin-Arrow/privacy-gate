@@ -9,10 +9,10 @@
 //!   completes; two imports of same bytes → two `doc_id`s; `get_document` has no span
 //!   text; newest first.")
 //!
-//! Detection is `NullDetector` throughout this file (dev-plan W10: "Detection may be a
-//! no-op empty field list only if W12 is the next PR" — it is, in this session's
-//! sequence). Every `detected_field_count` here is `0`; W12 replaces the detector, not
-//! anything in this test file's expectations of *this* chunk.
+//! Detection in this file is whatever W15c selects (factory `"auto"` → hybrid when
+//! Ollama is unreachable). Fixtures here have no UK PII, so `detected_field_count`
+//! stays `0`. Real detection goldens live in later detector tests; AC stub path uses
+//! `with_detector`.
 //!
 //! Out of W10 scope and deliberately absent here: `retention_policy_unset` /
 //! `retention_loosen_forbidden` (W11 — this file's fixtures always confirm a policy

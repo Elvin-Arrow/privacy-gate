@@ -2,17 +2,15 @@
 //!
 //! `import_document` (W10) needed *something* here before real detection existed —
 //! dev-plan W10: "Detection may be a no-op empty field list only if W12 is the next PR"
-//! (it was, in this sequence). W12 is that PR: [`StubDetector`] is now
-//! `SessionManager`'s default, in-process, no network, no model weights (dev-plan W12 "Do
-//! not: ONNX weights in this PR if they bloat CI; stub is enough for AC-1").
+//! (it was, in this sequence). W12 added [`StubDetector`]; W15c's production import path
+//! selects between [`HybridV1`] and [`HybridOllamaV1`] per detect (architecture §10.1.3).
+//! AC-1..AC-4 still install [`StubDetector`] via `SessionManager::with_detector` so model
+//! drift cannot hide a vault bug (testing.md §10).
 //!
 //! W13 adds [`PatternsUkV1`] (`pg-patterns-uk-v1`) as the hybrid's deterministic first
 //! stage. W15a adds [`HybridV1`] (`pg-hybrid-v1`) — that pack plus an on-device NER stage
-//! behind a SHA-256 pin ([`verify_model_pin`]). Neither is the import default (dev-plan
-//! W15a: "tests keep stub for AC-1..AC-4"); `SessionManager::with_detector` selects them.
-//! Real GLiNER weights are not in this crate (PR may skip them); W15b adds
-//! [`HybridOllamaV1`] (`pg-hybrid-ollama-v1`) as a selectable backend — not the import
-//! default (W15c wires selection).
+//! behind a SHA-256 pin ([`verify_model_pin`]). Real GLiNER weights are not in this crate
+//! (PR may skip them). W15b adds [`HybridOllamaV1`] (`pg-hybrid-ollama-v1`).
 //!
 //! # What the stub actually does
 //!
@@ -27,10 +25,10 @@
 //!
 //! design §2.2: "Expose detector plugin hooks... v1 ships the hooks empty of first-party
 //! plugins." The [`Detector`] trait *is* that hook — `SessionManager::with_detector` is
-//! the registration point, and v1 registers exactly one implementation
-//! ([`StubDetector`], later replaced by the real host) and no third-party plugins. A
-//! separate plugin-loading mechanism is out of scope for v1 entirely (testing.md §14:
-//! "Third-party plugin / WASM tests → later phase").
+//! the test/override registration point. Production import selects [`HybridV1`] or
+//! [`HybridOllamaV1`] (W15c); AC tests install [`StubDetector`]. A separate plugin-loading
+//! mechanism is out of scope for v1 entirely (testing.md §14: "Third-party plugin / WASM
+//! tests → later phase").
 
 mod hybrid;
 mod ollama;
@@ -41,9 +39,10 @@ pub use hybrid::{
     NER_PII_ONNX_SHA256,
 };
 pub use ollama::{
-    verify_chunk_entity, AllowlistEntry, FallbackReason, HybridOllamaV1, OllamaClient,
-    OllamaDetectOutcome, GEMMA4_E2B_CONTEXT_TOKENS, HYBRID_OLLAMA_V1_ID, OLLAMA_ALLOWLISTED_TAG,
-    OLLAMA_GEMMA4_E2B_DIGEST, OFFSET_REJECT_THRESHOLD,
+    default_ollama_allowlist, verify_chunk_entity, AllowlistEntry, FallbackReason, HybridOllamaV1,
+    OllamaClient, OllamaDetectOutcome, GEMMA4_E2B_CONTEXT_TOKENS, HYBRID_OLLAMA_V1_ID,
+    OLLAMA_ALLOWLISTED_TAG, OLLAMA_GEMMA4_E2B_DIGEST, OLLAMA_LOOPBACK_ADDR,
+    OFFSET_REJECT_THRESHOLD,
 };
 pub use patterns_uk::{PatternsUkV1, PATTERNS_UK_V1_ID};
 
@@ -82,7 +81,7 @@ impl Detector for NullDetector {
     }
 }
 
-/// `SessionManager`'s default detector (W12). See module docs for what it matches.
+/// Identity recorded when [`StubDetector`] ran (`data-model.md` / api.md §6).
 pub const STUB_DETECTOR_ID: &str = "pg-detector-stub-v1";
 
 /// Any whitespace-delimited token containing this substring is a detected field. Chosen to
@@ -92,7 +91,8 @@ pub const STUB_DETECTOR_ID: &str = "pg-detector-stub-v1";
 /// never accidentally cross-trigger each other.
 pub const STUB_CANARY_MARKER: &str = "PG-CANARY-";
 
-/// The real (if narrow) v1 default detector — see module docs.
+/// Locatable-span detector for AC-1..AC-4. Production import uses W15c selection unless
+/// this is installed via [`crate::session::SessionManager::with_detector`].
 #[derive(Debug, Default)]
 pub struct StubDetector;
 

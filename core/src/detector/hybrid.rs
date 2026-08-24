@@ -7,9 +7,9 @@
 //! that path cannot become a fail-open download. The pattern pack still runs
 //! (architecture §10.2).
 //!
-//! [`SessionManager`](crate::session::SessionManager) still defaults to
-//! [`super::StubDetector`] so AC-1..AC-4 stay decoupled from hybrid behaviour (dev-plan
-//! W15a). Select this host with `with_detector`. Ollama is W15b; backend selection is W15c.
+//! [`SessionManager`](crate::session::SessionManager) selects this host on
+//! `"bundled_only"` and as the `"auto"` fallback (W15c). Tests that need the W12 stub
+//! (AC-1..AC-4) still pass [`super::StubDetector`] via `with_detector`.
 
 use std::sync::Arc;
 
@@ -77,6 +77,17 @@ pub struct HybridV1 {
 }
 
 impl HybridV1 {
+    /// The always-available bundled host (architecture §10.1.3): pattern pack plus NER
+    /// when weights are present. Until `ner-pii.onnx` is vendored this is patterns-only
+    /// (architecture §10.2: missing NER fails that stage; the pack still runs).
+    pub fn bundled() -> Self {
+        Self {
+            patterns: PatternsUkV1,
+            ner: None,
+            ner_error: None,
+        }
+    }
+
     /// Inject a NER stage that is already trusted (fixture goldens). Does not consult
     /// [`NER_PII_ONNX_SHA256`].
     pub fn with_ner(ner: Arc<dyn NerStage>) -> Self {

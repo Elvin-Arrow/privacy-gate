@@ -1,12 +1,9 @@
-//! Session, account, and config commands (`api.md` §2, §5.1–§5.2; `architecture.md`
-//! §3.2–§3.4, §6, §7).
+//! Session, account, config, and catalog commands (`api.md` §2, §5.1–§5.3;
+//! `architecture.md` §3.2–§3.4, §6, §7, §10.1.3).
 //!
-//! Nine in-process command functions: [`SessionManager::get_session_state`],
-//! [`SessionManager::create_account`], [`SessionManager::unlock`],
-//! [`SessionManager::lock`], [`SessionManager::change_passphrase`],
-//! [`SessionManager::get_account`], [`SessionManager::get_integrity_report`] (W5),
-//! [`SessionManager::get_retention_default`], [`SessionManager::set_retention_default`]
-//! (W6).
+//! Includes [`SessionManager::get_detector_preference`] /
+//! [`SessionManager::set_detector_preference`] (W15c) and `import_document` /
+//! `list_documents` / `get_document` (W10).
 //!
 //! `dev-plan.md` §1: "**Integration seam for v1 core:** in-process API commands, not the
 //! webview." Tauri IPC wiring is W29; these are the functions it will call.
@@ -14,11 +11,9 @@
 //! # Scope fence (dev-plan.md W6 "Do not: first-import modal UI (W32); per-import override
 //! (W10)")
 //!
-//! Deliberately absent: no concrete `EventPayload` for import/detect/approve/share/etc.
-//! (`crate::audit` module docs) since those commands don't exist yet; Secret-Service
-//! probing / backend selection (W7); every document, approval, share, variant command; any
-//! UI; `detector_preference` read/write (W15c — the field exists in `crate::config::Config`
-//! but no command here touches it yet).
+//! Approval, share, variant, and Cloud-AI commands are still absent (W16+).
+//! `detector_preference` is read and written by W15c's commands and consulted on each
+//! `import_document` detect (architecture §10.1.3) — not cached at unlock.
 //!
 //! # `degraded_integrity` (architecture §6.3, W5)
 //!
@@ -31,6 +26,7 @@
 //! `"unlocked"` (api.md §5.1: crash-window fast-forward "returns `\"unlocked\"`", not a
 //! fourth state).
 
+use std::net::SocketAddr;
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
@@ -45,8 +41,11 @@ use crate::catalog::{
     CatalogError, DocumentMeta, DocumentStore, EffectiveRetention, NullDocumentStore,
     OriginalRecord,
 };
-use crate::config::{ConfigError, ConfigStore, NullConfigStore, RetentionPolicy};
-use crate::detector::{Detector, StubDetector};
+use crate::config::{ConfigError, ConfigStore, DetectorPreference, NullConfigStore, RetentionPolicy};
+use crate::detector::{
+    default_ollama_allowlist, AllowlistEntry, Detector, FallbackReason, HybridOllamaV1, HybridV1,
+    OllamaClient, HYBRID_OLLAMA_V1_ID, HYBRID_V1_ID, OLLAMA_LOOPBACK_ADDR,
+};
 use crate::importer::{self, SourceFormat};
 use crate::keys::{unwrap_master_key, wrap_master_key, VaultMasterKey, KEY_LEN};
 use crate::keystore::{
@@ -76,9 +75,9 @@ impl AuditStore for NullAuditStore {
 /// assert the constant so a rename cannot silently desync the webview listener.
 pub const DETECT_PROGRESS_EVENT: &str = "pg://detect-progress";
 
-/// api.md §6 `phase` on `pg://detect-progress`. W14 only emits [`DetectPhase::Detecting`];
-/// [`DetectPhase::WarmingModel`] is the W15b Ollama cold-start value, present on the type
-/// so the payload shape is already the spec's.
+/// api.md §6 `phase` on `pg://detect-progress`. [`DetectPhase::Detecting`] is the
+/// bundled/stub/fallback path. [`DetectPhase::WarmingModel`] is emitted only after a
+/// successful Ollama handshake (architecture §10.1.5); handshake failure never uses it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DetectPhase {
@@ -172,13 +171,10 @@ impl core::fmt::Display for SessionState {
 /// state (including before first run)," i.e. it has no gate at all, so it has no row.
 ///
 /// Only commands that exist so far are listed (dev-plan W4 "Do not: implement
-/// gated-but-unwritten commands"; W2 "commands that exist"). `list_audit_events` and every
-/// document/approval/share/variant command, plus `get_detector_preference`/
-/// `set_detector_preference` (decision 0009), are unregistered — api.md §2 has a row for
-/// them, this table does not, because no chunk through W6 implements them yet (dev-plan:
-/// "prefer not registering them yet"). api.md §2's row for those is the generic "All
-/// document / approval / share / config / cloud-ai / variant / delete" line: `no | no |
-/// yes | no` — note that even once registered, none of that family is available while
+/// gated-but-unwritten commands"). `list_audit_events` and every approval/share/variant
+/// command remain unregistered. Config and catalog commands that do exist (retention,
+/// detector preference, import/list/get document) share api.md §2's generic
+/// document/config row: `no | no | yes | no` — unavailable while
 /// `degraded_integrity` (C-API-6), unlike `lock`/`get_account`/`get_integrity_report`.
 ///
 /// [`SessionState::DegradedIntegrity`] appears in the table even though no command in this
@@ -214,6 +210,11 @@ const SESSION_TABLE: &[(&str, &[SessionState])] = &[
         &[SessionState::Unlocked],
     ),
     ("set_retention_default", &[SessionState::Unlocked]),
+    (
+        "get_detector_preference",
+        &[SessionState::Unlocked],
+    ),
+    ("set_detector_preference", &[SessionState::Unlocked]),
     // W10: api.md §5.3, same generic config/document row as retention (`no | no | yes |
     // no` — unavailable while degraded, C-API-6).
     ("import_document", &[SessionState::Unlocked]),
@@ -387,6 +388,18 @@ pub struct SetRetentionDefaultIn {
     pub policy: RetentionPolicy,
 }
 
+/// `get_detector_preference` Out / `set_detector_preference` Out (api.md §5.2).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DetectorPreferenceOut {
+    pub preference: DetectorPreference,
+}
+
+/// `set_detector_preference` In: `{ preference: "auto" | "bundled_only" }`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SetDetectorPreferenceIn {
+    pub preference: DetectorPreference,
+}
+
 // ---------------------------------------------------------------------------
 // api.md §5.3 — import and catalog commands (W10)
 // ---------------------------------------------------------------------------
@@ -460,6 +473,15 @@ pub struct GetDocumentOut {
     pub summary: DocumentSummary,
 }
 
+/// Result of one `import_document` detect phase (W15c). Not an IPC DTO.
+struct DetectionRun {
+    fields: Vec<crate::catalog::DetectedField>,
+    detector_id: &'static str,
+    backend: Option<&'static str>,
+    model_tag: Option<String>,
+    fallback_reason: Option<&'static str>,
+}
+
 /// design §7: documents beyond this size are outside the v1 interactive budget.
 /// `import_document` still completes; `over_budget` just becomes `true`.
 pub const IMPORT_BUDGET_BYTES: usize = 25 * 1024 * 1024;
@@ -516,7 +538,12 @@ pub struct SessionManager {
     audit: Arc<dyn AuditStore>,
     config: Arc<dyn ConfigStore>,
     documents: Arc<dyn DocumentStore>,
-    detector: Arc<dyn Detector>,
+    /// `None` → W15c per-detect selection between [`HybridV1`] and [`HybridOllamaV1`].
+    /// [`SessionManager::with_detector`] installs an override so AC-1..AC-4 can keep using
+    /// [`crate::detector::StubDetector`].
+    detector_override: Option<Arc<dyn Detector>>,
+    ollama_addr: SocketAddr,
+    ollama_allowlist: Vec<AllowlistEntry>,
     progress: Arc<dyn ProgressSink>,
     open: Option<OpenSession>,
 }
@@ -598,7 +625,9 @@ impl SessionManager {
             audit,
             config,
             documents: Arc::new(NullDocumentStore),
-            detector: Arc::new(StubDetector),
+            detector_override: None,
+            ollama_addr: OLLAMA_LOOPBACK_ADDR,
+            ollama_allowlist: default_ollama_allowlist(),
             progress: Arc::new(NullProgressSink),
             open: None,
         }
@@ -615,13 +644,33 @@ impl SessionManager {
         self
     }
 
-    /// Override the Detector backend. Defaults to [`StubDetector`] (W12) — real detection
-    /// (W13's patterns, W15a's ONNX, W15b's optional Ollama backend) replaces it here
-    /// without touching `import_document`'s call site.
+    /// Override the Detector backend. Production import uses W15c's per-detect selection
+    /// (architecture §10.1.3) when this is unset. Tests that need the W12 stub (AC-1..AC-4)
+    /// pass [`crate::detector::StubDetector`] here so model drift cannot hide a vault bug.
     #[must_use]
     pub fn with_detector(mut self, detector: Arc<dyn Detector>) -> Self {
-        self.detector = detector;
+        self.detector_override = Some(detector);
         self
+    }
+
+    /// Where `"auto"` probes Ollama (architecture §10.1.1). Defaults to
+    /// [`OLLAMA_LOOPBACK_ADDR`]. Tests point this at an in-process mock.
+    #[must_use]
+    pub fn with_ollama_endpoint(
+        mut self,
+        addr: SocketAddr,
+        allowlist: Vec<AllowlistEntry>,
+    ) -> Self {
+        self.ollama_addr = addr;
+        self.ollama_allowlist = allowlist;
+        self
+    }
+
+    /// Tests only: retarget the `"auto"` probe without rebuilding the session, so a
+    /// per-detect (not per-unlock) flip can be asserted on a live manager.
+    pub fn set_ollama_endpoint(&mut self, addr: SocketAddr, allowlist: Vec<AllowlistEntry>) {
+        self.ollama_addr = addr;
+        self.ollama_allowlist = allowlist;
     }
 
     /// Override the `pg://detect-progress` sink (W14). Defaults to a no-op; W29's Tauri
@@ -633,11 +682,11 @@ impl SessionManager {
         self
     }
 
-    fn emit_detect_progress(&self, doc_id: &str, fraction: f64) {
+    fn emit_detect_progress(&self, doc_id: &str, fraction: f64, phase: DetectPhase) {
         self.progress.emit_detect_progress(DetectProgress {
             doc_id: doc_id.to_string(),
             fraction,
-            phase: DetectPhase::Detecting,
+            phase,
         });
     }
 
@@ -1082,10 +1131,11 @@ impl SessionManager {
         // W3: "close the DB" (architecture §3.3's lock contract) — the SQLCipher
         // connection, and whatever key material SQLCipher itself holds, goes with it.
         self.vault.close();
-        // architecture §10.2: unload in-process NER on lock. No-op until a detector
-        // actually holds weights (W15a's HybridV1 uses a fixture stage with no ONNX
-        // session yet).
-        self.detector.on_lock();
+        // architecture §10.2: unload in-process NER on lock. Production selection
+        // constructs hosts per-detect (nothing resident); an override may hold weights.
+        if let Some(detector) = &self.detector_override {
+            detector.on_lock();
+        }
         debug_assert!(!self.has_resident_key_material());
         Ok(LockOut {
             state: SessionState::Locked,
@@ -1262,18 +1312,143 @@ impl SessionManager {
         })
     }
 
+    /// `get_detector_preference` — api.md §5.2; decision 0009.
+    ///
+    /// Factory `"auto"` (data-model §5.5). Unlocked-only, same generic config row as
+    /// retention (C-API-6: unavailable while degraded).
+    ///
+    /// # Errors
+    /// `not_in_session` unless the vault is open (and not degraded).
+    pub fn get_detector_preference(&self) -> Result<DetectorPreferenceOut, ApiError> {
+        if !command_allowed("get_detector_preference", self.state()) {
+            return Err(ApiError::not_in_session());
+        }
+        let open = self.require_open()?;
+        let config = self
+            .config
+            .load(&open.master)
+            .map_err(map_config_err)?
+            .unwrap_or_default();
+        Ok(DetectorPreferenceOut {
+            preference: config.detector_preference,
+        })
+    }
+
+    /// `set_detector_preference` — api.md §5.2; decision 0009.
+    ///
+    /// Does not confirm retention. `"auto"` | `"bundled_only"` only — a third value is a
+    /// type error (`DetectorPreference`), not a runtime string.
+    ///
+    /// # Errors
+    /// `not_in_session` unless the vault is open (and not degraded).
+    pub fn set_detector_preference(
+        &mut self,
+        input: SetDetectorPreferenceIn,
+    ) -> Result<DetectorPreferenceOut, ApiError> {
+        if !command_allowed("set_detector_preference", self.state()) {
+            return Err(ApiError::not_in_session());
+        }
+        let open = self.require_open()?;
+        let mut config = self
+            .config
+            .load(&open.master)
+            .map_err(map_config_err)?
+            .unwrap_or_default();
+        config.detector_preference = input.preference;
+        self.config
+            .store(&open.master, &config)
+            .map_err(map_config_err)?;
+        Ok(DetectorPreferenceOut {
+            preference: config.detector_preference,
+        })
+    }
+
+    /// architecture §10.1.3: per-detect selection. Not cached on the session.
+    fn detect_for_import(
+        &self,
+        doc: &crate::importer::Document,
+        doc_id: &str,
+        preference: DetectorPreference,
+    ) -> DetectionRun {
+        if let Some(detector) = &self.detector_override {
+            self.emit_detect_progress(doc_id, 0.0, DetectPhase::Detecting);
+            let fields = detector.detect(doc);
+            self.emit_detect_progress(doc_id, 1.0, DetectPhase::Detecting);
+            return DetectionRun {
+                fields,
+                detector_id: detector.id(),
+                backend: None,
+                model_tag: None,
+                fallback_reason: None,
+            };
+        }
+        match preference {
+            DetectorPreference::BundledOnly => self.detect_hybrid(doc, doc_id, None),
+            DetectorPreference::Auto => self.detect_auto(doc, doc_id),
+        }
+    }
+
+    fn detect_hybrid(
+        &self,
+        doc: &crate::importer::Document,
+        doc_id: &str,
+        fallback_reason: Option<FallbackReason>,
+    ) -> DetectionRun {
+        self.emit_detect_progress(doc_id, 0.0, DetectPhase::Detecting);
+        let fields = HybridV1::bundled().detect(doc);
+        self.emit_detect_progress(doc_id, 1.0, DetectPhase::Detecting);
+        DetectionRun {
+            fields,
+            detector_id: HYBRID_V1_ID,
+            backend: Some("onnx"),
+            model_tag: None,
+            fallback_reason: fallback_reason.map(FallbackReason::as_str),
+        }
+    }
+
+    fn detect_auto(&self, doc: &crate::importer::Document, doc_id: &str) -> DetectionRun {
+        let client = match OllamaClient::connect(self.ollama_addr, self.ollama_allowlist.clone()) {
+            Ok(c) => c,
+            Err(reason) => return self.detect_hybrid(doc, doc_id, Some(reason)),
+        };
+        match client.handshake() {
+            Err(reason) => self.detect_hybrid(doc, doc_id, Some(reason)),
+            Ok(_) => {
+                self.emit_detect_progress(doc_id, 0.0, DetectPhase::WarmingModel);
+                self.emit_detect_progress(doc_id, 0.0, DetectPhase::Detecting);
+                let outcome = HybridOllamaV1::new(client).detect_with_outcome(doc);
+                match outcome.fallback_reason {
+                    Some(reason) => {
+                        let fields = HybridV1::bundled().detect(doc);
+                        self.emit_detect_progress(doc_id, 1.0, DetectPhase::Detecting);
+                        DetectionRun {
+                            fields,
+                            detector_id: HYBRID_V1_ID,
+                            backend: Some("onnx"),
+                            model_tag: None,
+                            fallback_reason: Some(reason.as_str()),
+                        }
+                    }
+                    None => {
+                        self.emit_detect_progress(doc_id, 1.0, DetectPhase::Detecting);
+                        DetectionRun {
+                            fields: outcome.fields,
+                            detector_id: HYBRID_OLLAMA_V1_ID,
+                            backend: Some("ollama"),
+                            model_tag: outcome.model_tag,
+                            fallback_reason: None,
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     /// `import_document` — api.md §5.3; FR-1.1–1.5.
     ///
-    /// W10 scope: extraction (`crate::importer`), catalog storage
-    /// (`crate::catalog`/`DocumentStore`), detection via whatever `self.detector` is
-    /// (`NullDetector` — an empty field list — until W12), the `never_retain` → document
-    /// `retention: discard` mapping (data-model §6.1), the audit `import` event, and
-    /// `over_budget`. **Not yet implemented** (dev-plan W11, the very next chunk):
-    /// `retention_policy_unset` when the global default isn't confirmed, and
-    /// `retention_loosen_forbidden` for a `retain` override against a `never_retain`
-    /// default — both documented in api.md §5.3 but out of this chunk's stated scope
-    /// ("Do not: first-import modal UI (W32); per-import override (W10)" — W10 explicitly
-    /// does not own the override *gate*, only storing whichever retention value results).
+    /// Extraction (`crate::importer`), catalog storage, W11 retention gates, and W15c
+    /// per-detect backend selection (architecture §10.1.3). `with_detector` overrides
+    /// selection so AC-1..AC-4 can keep the stub.
     ///
     /// # Errors
     /// - `not_in_session` unless unlocked (not degraded — C-API-6).
@@ -1342,16 +1517,16 @@ impl SessionManager {
         };
 
         // design §2.2: "Run the on-device detection model... produce a list of classified
-        // fields." W12's default is `StubDetector` (`crate::detector` module docs);
-        // `field_ids`/`labels` are captured before `detected_fields` moves into `meta`, for
-        // the audit `detect` event below.
+        // fields." Production selection is W15c; `with_detector` keeps the W12 stub for
+        // AC-1..AC-4. `field_ids`/`labels` are captured before `detected_fields` moves
+        // into `meta`, for the audit `detect` event below.
         //
         // W14 / api.md §6: emit `pg://detect-progress` around detect, never 1.0 before
-        // `detect` returns (dev-plan W14 "Do not: fake 100% before detect finishes").
-        // `phase` is `"detecting"` until W15b's Ollama cold-start.
-        self.emit_detect_progress(&doc_id, 0.0);
-        let detected_fields = self.detector.detect(&doc);
-        self.emit_detect_progress(&doc_id, 1.0);
+        // `detect` returns. `phase: "warming_model"` only after a successful Ollama
+        // handshake (architecture §10.1.5); `"bundled_only"` and handshake failures stay
+        // on `"detecting"`.
+        let run = self.detect_for_import(&doc, &doc_id, config.detector_preference);
+        let detected_fields = run.fields;
         let detected_field_count = detected_fields.len() as u32;
         let field_ids: Vec<String> = detected_fields.iter().map(|f| f.id.clone()).collect();
         let labels: Vec<String> = detected_fields.iter().map(|f| f.label.clone()).collect();
@@ -1383,17 +1558,15 @@ impl SessionManager {
         self.record_audit_append(EventType::Import, Some(&doc_id), OriginalsFlag::Unset, &import_payload_jcs)?;
 
         // design §2.2: "Emit a detect event to the Audit Trail with the detected fields
-        // and classifications." data-model §5.8.1's Detect payload also has
-        // `backend`/`model_tag`/`fallback_reason` — all `null` until W15c's selection
-        // path fills them. `detector_id` is whatever host `with_detector` installed
-        // (default remains the W12 stub).
+        // and classifications." data-model §5.8.1: which identity actually ran, plus
+        // `backend`/`model_tag`/`fallback_reason` so a fallback is never hidden.
         let detect_payload = serde_json::json!({
-            "detector_id": self.detector.id(),
+            "detector_id": run.detector_id,
             "field_ids": field_ids,
             "labels": labels,
-            "backend": null,
-            "model_tag": null,
-            "fallback_reason": null,
+            "backend": run.backend,
+            "model_tag": run.model_tag,
+            "fallback_reason": run.fallback_reason,
         });
         let detect_payload_jcs =
             serde_json::to_string(&detect_payload).map_err(|_| ApiError::internal("audit payload encode failed"))?;
