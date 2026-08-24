@@ -211,6 +211,14 @@ const SESSION_TABLE: &[(&str, &[SessionState])] = &[
         &[SessionState::Unlocked, SessionState::DegradedIntegrity],
     ),
     (
+        // W28: api.md §2 row — `list_audit_events` | no | no | yes | yes (verified
+        // prefix only). Like `get_integrity_report`, available while degraded so the
+        // user can still see "what happened" (AC-4) — unlike the generic document/
+        // config row, which C-API-6 forbids while degraded.
+        "list_audit_events",
+        &[SessionState::Unlocked, SessionState::DegradedIntegrity],
+    ),
+    (
         // W6: api.md §2's generic config/document/... row — `no | no | yes | no`. Unlike
         // `get_account`/`get_integrity_report`/`lock`, config commands are **not**
         // available while degraded (C-API-6).
@@ -830,6 +838,47 @@ pub struct CloudAiClearConfigOut {
 pub struct CloudAiTestOut {
     pub ok: bool,
     pub error_class: Option<String>,
+}
+
+/// `list_audit_events` In (api.md §5.8). `limit: None` means "use the default (50)";
+/// an explicit out-of-range value (0, or over 200) is `invalid_input` rather than
+/// silently clamped — same precedent as `ai_instruction` (W27) and `save_variant`'s name
+/// length (W22): reject, don't guess.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ListAuditEventsIn {
+    pub doc_id: Option<String>,
+    pub event_type: Option<EventType>,
+    /// Exclusive cursor: only rows with `sequence > after_sequence`.
+    pub after_sequence: Option<u64>,
+    pub limit: Option<u32>,
+}
+
+/// `list_audit_events` Out (api.md §5.8).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ListAuditEventsOut {
+    pub events: Vec<AuditEventDto>,
+    /// `Some(last_returned.sequence)` when the page was cut short by `limit` (more rows
+    /// may exist beyond it); `None` once the filtered set is exhausted — including when
+    /// the very last page happens to be exactly `limit` rows long and nothing is left
+    /// after it (checked by fetching one extra row past `limit`, not by comparing counts).
+    pub next_sequence: Option<u64>,
+}
+
+/// `AuditEventDto` (api.md §5.8). Built only from [`AuditRow`]'s already-public fields —
+/// `entry_signature`/`prev_entry_hash` never reach this type (C-API-1/2/5: no chain
+/// integrity material, no keys, no span text on the wire).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AuditEventDto {
+    pub sequence: u64,
+    pub event_type: EventType,
+    pub doc_id: Option<String>,
+    /// RFC 3339, same helper `crate::account::format_rfc3339` uses elsewhere.
+    pub produced_at: String,
+    /// Only `Share` events carry `Some`; every other event type is `None`
+    /// ([`OriginalsFlag::Unset`] on the stored row).
+    pub no_originals_left_device: Option<bool>,
+    /// Parsed back from the row's stored `payload_jcs` — not re-derived.
+    pub payload: serde_json::Value,
 }
 
 /// In-process approval session (data-model §5.10). Lives on [`OpenSession`] so lock drops it.
@@ -1750,6 +1799,82 @@ impl SessionManager {
             return Err(ApiError::not_in_session());
         }
         Ok(self.require_open()?.integrity_report.clone())
+    }
+
+    /// `list_audit_events` — api.md §5.8; FR-7; AC-4 ("what did I share?").
+    ///
+    /// Read-only over the chain W5 already writes and verifies: `replay()`, filter,
+    /// paginate, map to [`AuditEventDto`]. No new audit row, no document-content access
+    /// (dev-plan W28 "Do not: webview HMAC verify" — and correspondingly, this never
+    /// returns `entry_signature`/`prev_entry_hash`).
+    ///
+    /// `unlocked` or `degraded_integrity` (api.md §2 SESSION_TABLE, W28) — like
+    /// `get_integrity_report`, kept available while degraded so the user can still see
+    /// what happened; unlike document/approval/share/config commands, which C-API-6
+    /// forbids while degraded. While degraded, only rows with `sequence <
+    /// first_bad_sequence` (the verified prefix) are visible — rows at or past the first
+    /// bad sequence are exactly the ones integrity verification could not vouch for.
+    ///
+    /// # Errors
+    /// - `not_in_session` unless unlocked or degraded.
+    /// - `invalid_input` if `limit` is explicitly `Some(0)` or `Some(n)` with `n > 200`.
+    /// - `internal` if the audit backend replay fails.
+    pub fn list_audit_events(&self, input: ListAuditEventsIn) -> Result<ListAuditEventsOut, ApiError> {
+        let state = self.state();
+        if !command_allowed("list_audit_events", state) {
+            return Err(ApiError::not_in_session());
+        }
+        let limit = match input.limit {
+            None => 50u32,
+            Some(0) => return Err(ApiError::invalid_input("limit must be 1..=200")),
+            Some(n) if n > 200 => return Err(ApiError::invalid_input("limit must be 1..=200")),
+            Some(n) => n,
+        };
+
+        let open = self.require_open()?;
+        let ceiling = if open.degraded {
+            open.integrity_report.first_bad_sequence
+        } else {
+            None
+        };
+
+        let rows = self.audit.replay().map_err(map_audit_err)?;
+        let mut events: Vec<AuditEventDto> = Vec::new();
+        let mut truncated = false;
+        for row in rows {
+            if let Some(ceiling) = ceiling {
+                if row.sequence >= ceiling {
+                    break;
+                }
+            }
+            if let Some(after) = input.after_sequence {
+                if row.sequence <= after {
+                    continue;
+                }
+            }
+            if let Some(doc_id) = &input.doc_id {
+                if row.doc_id.as_deref() != Some(doc_id.as_str()) {
+                    continue;
+                }
+            }
+            if let Some(event_type) = input.event_type {
+                if row.event_type != event_type {
+                    continue;
+                }
+            }
+            if events.len() as u32 >= limit {
+                truncated = true;
+                break;
+            }
+            events.push(audit_row_to_dto(&row)?);
+        }
+
+        let next_sequence = if truncated {
+            events.last().map(|e| e.sequence)
+        } else {
+            None
+        };
+        Ok(ListAuditEventsOut { events, next_sequence })
     }
 
     /// `get_retention_default` — api.md §5.2; decision 0007.
@@ -3265,6 +3390,29 @@ fn map_config_err(_: ConfigError) -> ApiError {
 /// W5/W10: audit backend failures are `internal`, non-secret classes.
 fn map_audit_err(_: AuditError) -> ApiError {
     ApiError::internal("audit backend failure")
+}
+
+/// W28: [`AuditRow`] -> [`AuditEventDto`]. Parses the row's already-stored `payload_jcs`
+/// back to a `Value` (does not re-derive it) and maps [`OriginalsFlag`] to `Option<bool>`
+/// per api.md §5.8 ("only `Share` events carry it"). Never touches
+/// `entry_signature`/`prev_entry_hash` — those fields of `AuditRow` are simply not read
+/// here (C-API-1/2/5).
+fn audit_row_to_dto(row: &AuditRow) -> Result<AuditEventDto, ApiError> {
+    let payload: serde_json::Value = serde_json::from_str(&row.payload_jcs)
+        .map_err(|_| ApiError::internal("audit payload decode failed"))?;
+    let no_originals_left_device = match row.originals_flag {
+        OriginalsFlag::Unset => None,
+        OriginalsFlag::False => Some(false),
+        OriginalsFlag::True => Some(true),
+    };
+    Ok(AuditEventDto {
+        sequence: row.sequence,
+        event_type: row.event_type,
+        doc_id: row.doc_id.clone(),
+        produced_at: crate::account::format_rfc3339((row.produced_at_unix_ms / 1000) as i64),
+        no_originals_left_device,
+        payload,
+    })
 }
 
 /// W10: catalog backend failures are `internal`, non-secret classes.

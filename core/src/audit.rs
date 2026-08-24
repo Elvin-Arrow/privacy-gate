@@ -32,7 +32,13 @@ pub const ENCODING_VERSION: u8 = 1;
 pub const GENESIS_DIGEST: [u8; 32] = [0u8; 32];
 
 /// data-model §5.8.1 / §7 SQL comment: `event_type` u8 codes, 1..6.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+///
+/// `Serialize`/`Deserialize` (W28) use the api.md §5.8 wire strings (`"import"`,
+/// `"detect"`, `"approve"`, `"share"`, `"discard_original"`, `"delete"`) — the same
+/// strings `AuditEventDto.event_type` and `list_audit_events`'s `event_type` filter use.
+/// This is the one mapping; `crate::session` reuses it rather than inventing a second.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 #[repr(u8)]
 pub enum EventType {
     Import = 1,
