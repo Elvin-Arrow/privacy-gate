@@ -58,6 +58,10 @@ regex = "1"
 # and ambient proxy support we do not want.
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 
+# W23: from-scratch PDF writer (architecture §11). In-memory only; never mutates a
+# source PDF. `pdf-extract` remains import-only.
+pdf-writer = "0.14"
+
 [dev-dependencies]
 # Longhand RFC 5869 reference used by the HKDF known-answer tests, so the test
 # does not simply mirror the production call.

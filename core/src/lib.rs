@@ -38,6 +38,7 @@
 //!   `delete_variant`.
 //! - [`overlap`] — design §3.5 byte-offset redaction (innermost keep; partial overlap
 //!   redact-wins) applied at `submit_approval` (W17/W18).
+//! - [`export`] — from-scratch PDF writer from `redacted_content` (W23, architecture §11).
 
 pub mod account;
 pub mod api;
@@ -46,6 +47,7 @@ pub mod catalog;
 pub mod config;
 pub mod crypto;
 pub mod detector;
+pub mod export;
 pub mod importer;
 pub mod keys;
 pub mod keystore;

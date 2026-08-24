@@ -24,7 +24,7 @@ Apply-on-share is W26.
   C-API-2 JSON, delete leaves approved.
 - `cargo test -p pg-core` green; `cargo clippy -p pg-core -- -D warnings` clean.
 
-Next: W23 — PDF re-render (true removal).
+Next: W24 — share preview + commit (export).
 
 ## Related Documentation
 
