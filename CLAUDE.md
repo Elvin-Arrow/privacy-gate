@@ -172,7 +172,8 @@ on those commands). `W17` (overlap / nested fields — `core/src/overlap.rs`; in
 partial overlap redact-wins; table-driven + `proptest`). `W18` (`submit_approval` —
 canonical `ApprovedVersion` with `redacted_content`; discard RAM original; audit `approve`).
 `W19` (`abort_approval` and lock vs retention — discard unapproved rows dropped; retain
-may `open_approval` again). `W20` (`delete_document` DEK destroy) is next;
+may `open_approval` again). `W20` (`delete_document` — overwrite-and-drop wrapped DEKs;
+audit `delete`). `W21` (`delete_retained_original`) is next;
 see `docs/dev-plan.md` for the full sequence and `docs/dev-log/` for what each completed
 chunk did and any problems hit along the way.
 

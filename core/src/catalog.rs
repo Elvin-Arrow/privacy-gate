@@ -256,6 +256,14 @@ pub trait DocumentStore: Send + Sync {
     /// # Errors
     /// [`CatalogError::Backend`] on I/O/backend failure, or if the document is approved.
     fn drop_unapproved(&self, doc_id: &str) -> Result<(), CatalogError>;
+
+    /// Irrevocable delete (FR-4.6 / architecture §4.3): overwrite-and-drop every
+    /// document-scoped artifact (meta, original, approved, variants), then the catalog
+    /// row. No-op if `doc_id` is already absent.
+    ///
+    /// # Errors
+    /// [`CatalogError::Backend`] on I/O/backend failure.
+    fn destroy_document(&self, doc_id: &str) -> Result<(), CatalogError>;
 }
 
 /// The W2–W9-era no-op backend. Exists so every constructor that predates W10 keeps
@@ -309,6 +317,9 @@ impl DocumentStore for NullDocumentStore {
         Ok(None)
     }
     fn drop_unapproved(&self, _doc_id: &str) -> Result<(), CatalogError> {
+        Err(CatalogError::Backend("no document store configured"))
+    }
+    fn destroy_document(&self, _doc_id: &str) -> Result<(), CatalogError> {
         Err(CatalogError::Backend("no document store configured"))
     }
 }

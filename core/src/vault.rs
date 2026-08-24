@@ -570,6 +570,21 @@ impl SqlCipherVault {
             Ok(())
         })
     }
+
+    /// How many `artifact` rows still carry this `doc_id` (W20 DEK-destroy oracle).
+    ///
+    /// # Errors
+    /// [`VaultError::Backend`] if the vault is not open or the query fails.
+    pub fn test_only_artifact_count(&self, doc_id: &str) -> Result<i64, VaultError> {
+        self.with_conn(|conn| {
+            conn.query_row(
+                "SELECT count(*) FROM artifact WHERE doc_id = ?1",
+                [doc_id],
+                |r| r.get(0),
+            )
+            .map_err(|_| VaultError::Backend("artifact count failed"))
+        })
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -949,46 +964,104 @@ impl DocumentStore for SqlCipherVault {
     }
 
     fn drop_unapproved(&self, doc_id: &str) -> Result<(), CatalogError> {
-        self.with_conn_mut(|conn| {
-            let tx = conn
-                .transaction()
-                .map_err(|_| VaultError::Backend("could not start transaction"))?;
-            let row = tx
-                .query_row(
-                    "SELECT meta_artifact_id, original_artifact_id, approved_artifact_id
-                     FROM document WHERE doc_id = ?1",
-                    [doc_id],
-                    |r| {
-                        let meta: String = r.get(0)?;
-                        let original: Option<String> = r.get(1)?;
-                        let approved: Option<String> = r.get(2)?;
-                        Ok((meta, original, approved))
-                    },
-                )
-                .optional()
-                .map_err(|_| VaultError::Backend("drop_unapproved lookup failed"))?;
-            let Some((meta_id, original_id, approved_id)) = row else {
-                return Ok(());
-            };
-            if approved_id.is_some() {
-                return Err(VaultError::Backend("cannot drop an approved document"));
-            }
-            tx.execute("DELETE FROM variant WHERE doc_id = ?1", [doc_id])
-                .map_err(|_| VaultError::Backend("drop_unapproved variant delete failed"))?;
-            tx.execute("DELETE FROM document WHERE doc_id = ?1", [doc_id])
-                .map_err(|_| VaultError::Backend("drop_unapproved document delete failed"))?;
-            tx.execute("DELETE FROM artifact WHERE artifact_id = ?1", [meta_id])
-                .map_err(|_| VaultError::Backend("drop_unapproved meta delete failed"))?;
-            if let Some(oid) = original_id {
-                tx.execute("DELETE FROM artifact WHERE artifact_id = ?1", [oid])
-                    .map_err(|_| VaultError::Backend("drop_unapproved original delete failed"))?;
-            }
-            tx.commit()
-                .map_err(|_| VaultError::Backend("drop_unapproved commit failed"))?;
-            Ok(())
-        })
-        .map_err(catalog_err)
+        if self.has_approved_version(doc_id)? {
+            return Err(CatalogError::Backend("cannot drop an approved document"));
+        }
+        self.destroy_document(doc_id)
     }
+
+    fn destroy_document(&self, doc_id: &str) -> Result<(), CatalogError> {
+        self.with_conn_mut(|conn| destroy_document_in_tx(conn, doc_id))
+            .map_err(catalog_err)
+    }
+}
+
+/// architecture §4.3 step 1: overwrite wrapped DEK / nonce / ciphertext in place.
+pub fn zeroize_key_material(wrapped_dek: &mut [u8], nonce: &mut [u8], ciphertext: &mut [u8]) {
+    wrapped_dek.fill(0);
+    nonce.fill(0);
+    ciphertext.fill(0);
+}
+
+fn overwrite_artifact_key_material(
+    tx: &rusqlite::Transaction<'_>,
+    artifact_id: &str,
+) -> Result<(), VaultError> {
+    let row: Option<(Vec<u8>, Vec<u8>, Vec<u8>)> = tx
+        .query_row(
+            "SELECT wrapped_dek, nonce, ciphertext FROM artifact WHERE artifact_id = ?1",
+            [artifact_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .optional()
+        .map_err(|_| VaultError::Backend("artifact key-material read failed"))?;
+    let Some((mut dek, mut nonce, mut ct)) = row else {
+        return Ok(());
+    };
+    zeroize_key_material(&mut dek, &mut nonce, &mut ct);
+    tx.execute(
+        "UPDATE artifact SET wrapped_dek = ?1, nonce = ?2, ciphertext = ?3 WHERE artifact_id = ?4",
+        rusqlite::params![dek, nonce, ct, artifact_id],
+    )
+    .map_err(|_| VaultError::Backend("artifact overwrite failed"))?;
+    Ok(())
+}
+
+/// data-model §7 delete order + architecture §4.3 overwrite-and-drop.
+fn destroy_document_in_tx(conn: &mut Connection, doc_id: &str) -> Result<(), VaultError> {
+    let tx = conn
+        .transaction()
+        .map_err(|_| VaultError::Backend("could not start transaction"))?;
+    let row = tx
+        .query_row(
+            "SELECT meta_artifact_id, original_artifact_id, approved_artifact_id
+             FROM document WHERE doc_id = ?1",
+            [doc_id],
+            |r| {
+                let meta: String = r.get(0)?;
+                let original: Option<String> = r.get(1)?;
+                let approved: Option<String> = r.get(2)?;
+                Ok((meta, original, approved))
+            },
+        )
+        .optional()
+        .map_err(|_| VaultError::Backend("destroy_document lookup failed"))?;
+    let Some((meta_id, original_id, approved_id)) = row else {
+        return Ok(());
+    };
+    let variant_artifacts = {
+        let mut stmt = tx
+            .prepare("SELECT artifact_id FROM variant WHERE doc_id = ?1")
+            .map_err(|_| VaultError::Backend("variant artifact list failed"))?;
+        let ids = stmt
+            .query_map([doc_id], |r| r.get::<_, String>(0))
+            .map_err(|_| VaultError::Backend("variant artifact query failed"))?
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(|_| VaultError::Backend("variant artifact decode failed"))?;
+        ids
+    };
+    let mut artifact_ids = vec![meta_id];
+    if let Some(id) = original_id {
+        artifact_ids.push(id);
+    }
+    if let Some(id) = approved_id {
+        artifact_ids.push(id);
+    }
+    artifact_ids.extend(variant_artifacts);
+    for id in &artifact_ids {
+        overwrite_artifact_key_material(&tx, id)?;
+    }
+    tx.execute("DELETE FROM variant WHERE doc_id = ?1", [doc_id])
+        .map_err(|_| VaultError::Backend("destroy variant delete failed"))?;
+    tx.execute("DELETE FROM document WHERE doc_id = ?1", [doc_id])
+        .map_err(|_| VaultError::Backend("destroy document delete failed"))?;
+    for id in &artifact_ids {
+        tx.execute("DELETE FROM artifact WHERE artifact_id = ?1", [id])
+            .map_err(|_| VaultError::Backend("destroy artifact delete failed"))?;
+    }
+    tx.commit()
+        .map_err(|_| VaultError::Backend("destroy_document commit failed"))?;
+    Ok(())
 }
 
 /// Preserve the real `VaultError` class (same reasoning as `account_store_err`/`audit_err`/
@@ -1187,5 +1260,16 @@ mod tests {
                 Ok(())
             })
             .expect("schema introspection");
+    }
+
+    #[test]
+    fn zeroize_key_material_overwrites_every_byte() {
+        let mut dek = vec![0xABu8; 16];
+        let mut nonce = vec![0xCDu8; 24];
+        let mut ct = vec![0xEFu8; 8];
+        super::zeroize_key_material(&mut dek, &mut nonce, &mut ct);
+        assert!(dek.iter().all(|&b| b == 0));
+        assert!(nonce.iter().all(|&b| b == 0));
+        assert!(ct.iter().all(|&b| b == 0));
     }
 }

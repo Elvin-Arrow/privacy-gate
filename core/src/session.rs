@@ -229,6 +229,7 @@ const SESSION_TABLE: &[(&str, &[SessionState])] = &[
     ("set_field_decisions", &[SessionState::Unlocked]),
     ("submit_approval", &[SessionState::Unlocked]),
     ("abort_approval", &[SessionState::Unlocked]),
+    ("delete_document", &[SessionState::Unlocked]),
 ];
 
 /// api.md §2: is `command` callable while the session is in `state`? `false` for any
@@ -601,6 +602,18 @@ pub struct AbortApprovalIn {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AbortApprovalOut {
     pub lifecycle: ApprovalLifecycle,
+}
+
+/// `delete_document` In: `{ doc_id }` (api.md §5.3).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeleteDocumentIn {
+    pub doc_id: String,
+}
+
+/// `delete_document` Out: `{ ok: true }`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeleteDocumentOut {
+    pub ok: bool,
 }
 
 /// In-process approval session (data-model §5.10). Lives on [`OpenSession`] so lock drops it.
@@ -2099,6 +2112,47 @@ impl SessionManager {
         Ok(AbortApprovalOut {
             lifecycle: ApprovalLifecycle::Aborted,
         })
+    }
+
+    /// `delete_document` — api.md §5.3; FR-4.6; architecture §4.3.
+    ///
+    /// Overwrite-and-drop every document-scoped artifact, then the catalog row. Audit
+    /// `delete`. Idempotent absence is `not_found` (unknown id), not a second success.
+    ///
+    /// # Errors
+    /// - `not_in_session` unless unlocked.
+    /// - `not_found` if `doc_id` is unknown.
+    pub fn delete_document(&mut self, input: DeleteDocumentIn) -> Result<DeleteDocumentOut, ApiError> {
+        if !command_allowed("delete_document", self.state()) {
+            return Err(ApiError::not_in_session());
+        }
+        let doc_id = input.doc_id;
+        let exists = self
+            .documents
+            .load_meta(&self.require_open()?.master, &doc_id)
+            .map_err(map_catalog_err)?
+            .is_some();
+        if !exists {
+            return Err(ApiError::not_found());
+        }
+        self.documents
+            .destroy_document(&doc_id)
+            .map_err(map_catalog_err)?;
+        if let Some(open) = self.open.as_mut() {
+            if open
+                .approval
+                .as_ref()
+                .is_some_and(|s| s.doc_id == doc_id)
+            {
+                open.approval = None;
+            }
+            open.pending_bodies.remove(&doc_id);
+        }
+        let payload = serde_json::json!({ "doc_id": doc_id });
+        let payload_jcs = serde_json::to_string(&payload)
+            .map_err(|_| ApiError::internal("audit payload encode failed"))?;
+        self.record_audit_append(EventType::Delete, Some(&doc_id), OriginalsFlag::Unset, &payload_jcs)?;
+        Ok(DeleteDocumentOut { ok: true })
     }
 
     /// Page IR for approval: this-unlock `pending_bodies`, or a retain original reconstructed

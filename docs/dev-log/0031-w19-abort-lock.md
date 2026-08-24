@@ -32,7 +32,7 @@ supposed to survive lock.
   unapproved discard and keeps approved discard + unapproved retain.
 - `cargo test -p pg-core` green; `cargo clippy -p pg-core -- -D warnings` clean.
 
-Next: W20 — `delete_document` (DEK destroy).
+Next: W21 — `delete_retained_original`.
 
 ## Related Documentation
 

@@ -32,7 +32,8 @@
 //!   AC-1..AC-4. `open_approval` / `get_approval_view` / `set_field_decisions` (W16) hold
 //!   one RAM approval session. `submit_approval` (W18) writes the canonical
 //!   `ApprovedVersion` and drops that session. `abort_approval` / lock (W19) drop
-//!   unapproved discard catalog rows; retain may reopen after lock.
+//!   unapproved discard catalog rows; retain may reopen after lock. `delete_document`
+//!   (W20) overwrite-and-drops wrapped DEKs.
 //! - [`overlap`] — design §3.5 byte-offset redaction (innermost keep; partial overlap
 //!   redact-wins) applied at `submit_approval` (W17/W18).
 
