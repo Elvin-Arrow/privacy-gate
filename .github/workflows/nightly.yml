@@ -64,6 +64,28 @@ jobs:
           fi
           cargo test -p pg-core --test ollama_w15b nightly_real_ollama -- --ignored --nocapture
 
+  perf-budgets:
+    name: Perf budgets (design.md §7)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config \
+            libssl-dev
+
+      - name: Perf budgets (design.md §7; testing.md §8 "not a flaky PR gate")
+        run: cargo test -p pg-core --test perf_w39 -- --ignored --nocapture
+
   mutants-core:
     name: Full-crate mutants (testing.md §5.6)
     runs-on: ubuntu-latest

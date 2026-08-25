@@ -38,6 +38,9 @@ jobs:
       - name: Run acceptance pack AC-1..AC-7
         run: cargo test -p pg-core --test acceptance_w37 -- --nocapture
 
+      - name: Run no-plaintext-to-disk watcher (testing.md §8)
+        run: cargo test -p pg-core --test no_plaintext_watcher_w39 -- --nocapture
+
       - name: Install Node.js
         uses: actions/setup-node@v4
         with:

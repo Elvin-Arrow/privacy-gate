@@ -57,6 +57,7 @@ diary. Each entry links to affected specs and decisions.
 - [0048-w36-ui-variants-ai](./0048-w36-ui-variants-ai.md) — W36: variants empty/list + Cloud AI share confirm — `VariantsScreen` empty copy and delete-with-confirm (no edit); vault **Manage variants**; ShareScreen Ask Cloud AI shows §15 confirm + read-only payload before commit. 94 Vitest tests. Acceptance pack AC-1..AC-7 is W37.
 - [0049-w37-acceptance-pack](./0049-w37-acceptance-pack.md) — W37: AC-1..AC-7 in-process pack (`core/tests/acceptance_w37.rs`) — fills multi-doc share order and stolen-vault-after-approve gaps; CI prints the seven `AC-n` names. Mutation gate is W38.
 - [0050-w38-mutation-gate](./0050-w38-mutation-gate.md) — W38: PR `cargo-mutants` shards on testing.md §5.3 (S = 1.00 after equivalent skips); nightly full `pg-core`; CI `mutants` job required. Perf/watcher is W39.
+- [0051-w39-perf-and-watcher](./0051-w39-perf-and-watcher.md) — W39: no-plaintext-to-disk watcher (`core/tests/no_plaintext_watcher_w39.rs`, PR-gated) walks a temp-dir sandbox after import/detect/approve/export/lock and asserts no file — `vault.db` and the Linux fallback blob included — contains fixture plaintext; perf budgets (`core/tests/perf_w39.rs`, nightly-only `#[ignore]`d) cover unlock/import+detect/approval-payload/export/audit-query against design.md §7, and document two spec/implementation gaps (fused import+detect; `list_audit_events`'s real 200 cap vs. design.md's "1000 events"). Zero production code changed. Last dev-plan chunk in the "harden" slice.
 
 ## Navigation
 
