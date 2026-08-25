@@ -473,6 +473,25 @@ file must match that constant. Weights are never fetched at runtime (architectur
 ## 14. Deferred
 
 - Third-party plugin / WASM tests → later phase (FR-9.5 is architectural).
+- **Audit query budget scale** (W39, `core/tests/perf_w39.rs`): design.md §7 phrases the
+  audit-query perf budget as "last 1000 events", but `list_audit_events`'s real `limit` is
+  capped at 200 (`session.rs`: `"limit must be 1..=200"`); api.md §5.8 never documents a
+  1000 tier either. `perf_w39.rs` tests at the actual maximum (200) against a small corpus
+  instead. Required improvement: either raise the command's cap (and prove the 500ms
+  budget still holds at 1000-row scale) or correct design.md §7's wording to match the
+  shipped 200-row limit — currently neither has happened, so the spec and the
+  implementation disagree.
+- **Fused import+detect timing** (W39, `core/tests/perf_w39.rs`): `import_document` runs
+  detection synchronously inside the same call (decision made at W14, not new to W39), so
+  there is no command-level seam to budget-test import and detect separately against
+  design.md §7's two numbers (≤2s / ≤5s) — `perf_w39.rs` budgets the fused call at their
+  sum (7s) instead. No functional or UX disadvantage has been identified with the fusion
+  itself: `pg://detect-progress` already gives the frontend incremental progress across
+  both phases, and nothing in the spec set requires import and detect to be independently
+  cancellable or independently timed by a user-facing command. The only real gap is test
+  observability — a regression that blows the detect budget alone cannot be distinguished
+  from one in import extraction. Not a required fix unless that observability becomes
+  necessary; revisit only if it does.
 
 ---
 
