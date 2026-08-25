@@ -32,8 +32,11 @@ jobs:
             pkg-config \
             libssl-dev
 
-      - name: Run Rust tests
+      - name: Run Rust library tests
         run: cargo test --lib
+
+      - name: Run acceptance pack AC-1..AC-7
+        run: cargo test -p pg-core --test acceptance_w37 -- --nocapture
 
       - name: Install Node.js
         uses: actions/setup-node@v4
