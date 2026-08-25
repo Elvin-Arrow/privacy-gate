@@ -72,7 +72,14 @@ function mockMount(options?: {
 }
 
 function baseProps() {
-  return { onLock: vi.fn(), onNavigateSettings: vi.fn() }
+  return {
+    onLock: vi.fn(),
+    onNavigateSettings: vi.fn(),
+    onNavigateAudit: vi.fn(),
+    onOpenApproval: vi.fn(),
+    onOpenShare: vi.fn(),
+    onOpenVariants: vi.fn(),
+  }
 }
 
 function makeFile(name: string, content = 'hello', type = 'text/plain'): File {
@@ -386,6 +393,88 @@ describe('VaultScreen — vault list (§7.1)', () => {
     await screen.findByText('same.txt')
     expect(screen.queryByText(/already imported/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/duplicate/i)).not.toBeInTheDocument()
+  })
+})
+
+describe('VaultScreen — Open / §7.3 navigate to approval (W33)', () => {
+  it('Open on an unapproved row calls onOpenApproval with that doc_id', async () => {
+    const props = baseProps()
+    mockMount({
+      retention: RETENTION_CONFIRMED,
+      documents: [docSummary({ doc_id: 'doc-open', has_approved_version: false })],
+    })
+    render(VaultScreen, props)
+
+    await screen.findByText('report.pdf')
+    await fireEvent.click(screen.getByRole('button', { name: 'Open' }))
+
+    expect(props.onOpenApproval).toHaveBeenCalledWith('doc-open', 'report.pdf')
+    expect(screen.queryByText(/not yet available/i)).not.toBeInTheDocument()
+  })
+
+  it('Open on an already-approved row calls onOpenShare, not onOpenApproval', async () => {
+    const props = baseProps()
+    mockMount({
+      retention: RETENTION_CONFIRMED,
+      documents: [
+        docSummary({
+          doc_id: 'doc-done',
+          source_filename: 'done.txt',
+          has_approved_version: true,
+        }),
+      ],
+    })
+    render(VaultScreen, props)
+
+    await screen.findByText('done.txt')
+    await fireEvent.click(screen.getByRole('button', { name: 'Open' }))
+
+    expect(props.onOpenApproval).not.toHaveBeenCalled()
+    expect(props.onOpenShare).toHaveBeenCalledWith('doc-done', 'done.txt')
+  })
+
+  it('Manage variants on an approved row calls onOpenVariants (ui.md §9)', async () => {
+    const props = baseProps()
+    mockMount({
+      retention: RETENTION_CONFIRMED,
+      documents: [
+        docSummary({
+          doc_id: 'doc-done',
+          source_filename: 'done.txt',
+          has_approved_version: true,
+        }),
+      ],
+    })
+    render(VaultScreen, props)
+
+    await screen.findByText('done.txt')
+    await fireEvent.click(screen.getByRole('button', { name: 'Manage variants' }))
+    expect(props.onOpenVariants).toHaveBeenCalledWith('doc-done', 'done.txt')
+    expect(props.onOpenShare).not.toHaveBeenCalled()
+  })
+
+  it('a successful import of an unapproved document navigates to approval (§7.3)', async () => {
+    const props = baseProps()
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === 'get_retention_default') return Promise.resolve(RETENTION_CONFIRMED)
+      if (cmd === 'list_documents') return Promise.resolve({ documents: [] })
+      if (cmd === 'import_document') {
+        return Promise.resolve({
+          summary: docSummary({ doc_id: 'doc-new', source_filename: 'a.txt' }),
+          over_budget: false,
+        })
+      }
+      throw new Error(`unexpected command: ${cmd}`)
+    })
+    const { container } = render(VaultScreen, props)
+    await waitFor(() => screen.getByText(/No documents yet/))
+
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement
+    await fireEvent.change(input, { target: { files: [makeFile('a.txt')] } })
+
+    await waitFor(() => {
+      expect(props.onOpenApproval).toHaveBeenCalledWith('doc-new', 'a.txt')
+    })
   })
 })
 

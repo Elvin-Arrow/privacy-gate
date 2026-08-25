@@ -4,11 +4,8 @@
   // `import_document` write path (file input + drag-and-drop), gated by decision 0007's
   // blocking retention modal.
   //
-  // §7.3 gap ("navigate to Approval on `has_approved_version === false`"): the Approval
-  // screen is W33, not built yet. This screen does **not** fake or partially build it.
-  // Instead: a freshly-imported (or any unapproved) row's "Open" action shows an inline
-  // "Approval screen not yet available" placeholder rather than navigating anywhere or
-  // silently doing nothing — see docs/dev-log/0044-w32-ui-vault-import.md.
+  // §7.3: unapproved Open (and a successful import) navigate to Approval via
+  // `onOpenApproval`. Approved Open navigates to Share (ui.md §7.1 / W34).
   //
   // C-UI-1 / architecture §12: import reads `File` bytes in memory (`file.arrayBuffer()`)
   // and never touches `@tauri-apps/plugin-fs` or any filesystem-path API — this file has
@@ -40,10 +37,24 @@
     UNSUPPORTED_DOCUMENT_COPY,
     DELETE_DOCUMENT_CONFIRM_COPY,
     VAULT_EMPTY_STATE_COPY,
+    MANAGE_VARIANTS_LABEL,
   } from '../lib/copy'
 
-  let { onLock, onNavigateSettings }: { onLock: () => void; onNavigateSettings: () => void } =
-    $props()
+  let {
+    onLock,
+    onNavigateSettings,
+    onNavigateAudit,
+    onOpenApproval,
+    onOpenShare,
+    onOpenVariants,
+  }: {
+    onLock: () => void
+    onNavigateSettings: () => void
+    onNavigateAudit: () => void
+    onOpenApproval: (docId: string, sourceFilename: string) => void
+    onOpenShare: (docId: string, sourceFilename: string) => void
+    onOpenVariants: (docId: string, sourceFilename: string) => void
+  } = $props()
 
   // --- Vault list (§7.1) --------------------------------------------------
   let documents = $state<DocumentSummary[]>([])
@@ -74,14 +85,6 @@
   let importError = $state('')
   let overBudgetNotice = $state(false)
   let dragOver = $state(false)
-  // §7.3 gap-handling: the doc_id of the row we should flag "Open" as deferred for,
-  // distinctly from any other unapproved row already in the vault (all unapproved rows get
-  // the same placeholder — this just tracks "most recently imported" for no special
-  // treatment beyond that; kept for clarity/debuggability, not behavior).
-  let lastImportedDocId = $state<string | null>(null)
-
-  // --- Row-level "Open" placeholder (§7.3 gap) -----------------------------
-  let openPlaceholderDocId = $state<string | null>(null)
 
   // --- Delete confirm (mirrors SettingsScreen's Cloud-AI-clear pattern) ---
   let deleteConfirmDocId = $state<string | null>(null)
@@ -204,8 +207,10 @@
       if (out.over_budget) {
         overBudgetNotice = true
       }
-      lastImportedDocId = out.summary.doc_id
       await refreshList()
+      if (!out.summary.has_approved_version) {
+        onOpenApproval(out.summary.doc_id, out.summary.source_filename)
+      }
     } catch (err) {
       importError = mapImportError(err)
     } finally {
@@ -232,10 +237,12 @@
     return 'Could not import this file.'
   }
 
-  function handleOpen(docId: string) {
-    // §7.3 gap-handling: no Approval screen exists yet (W33). Show a clearly-labeled
-    // deferred placeholder instead of navigating nowhere or faking one.
-    openPlaceholderDocId = openPlaceholderDocId === docId ? null : docId
+  function handleOpen(doc: DocumentSummary) {
+    if (doc.has_approved_version) {
+      onOpenShare(doc.doc_id, doc.source_filename)
+      return
+    }
+    onOpenApproval(doc.doc_id, doc.source_filename)
   }
 
   function requestDelete(docId: string) {
@@ -275,7 +282,13 @@
 </script>
 
 <div class="screen">
-  <AppShell active="vault" onNavigateVault={() => {}} {onNavigateSettings} {onLock} />
+  <AppShell
+    active="vault"
+    onNavigateVault={() => {}}
+    {onNavigateAudit}
+    {onNavigateSettings}
+    {onLock}
+  />
 
   <main>
     <section class="import-section">
@@ -350,7 +363,12 @@
               <td>{doc.detected_field_count}</td>
               <td>{doc.has_approved_version ? 'Yes' : 'No'}</td>
               <td class="actions-cell">
-                <button type="button" onclick={() => handleOpen(doc.doc_id)}>Open</button>
+                <button type="button" onclick={() => handleOpen(doc)}>Open</button>
+                {#if doc.has_approved_version}
+                  <button type="button" onclick={() => onOpenVariants(doc.doc_id, doc.source_filename)}>
+                    {MANAGE_VARIANTS_LABEL}
+                  </button>
+                {/if}
                 {#if deleteConfirmDocId === doc.doc_id}
                   <span class="confirm-delete">
                     {DELETE_DOCUMENT_CONFIRM_COPY}
@@ -363,9 +381,6 @@
                   </span>
                 {:else}
                   <button type="button" onclick={() => requestDelete(doc.doc_id)}>Delete</button>
-                {/if}
-                {#if openPlaceholderDocId === doc.doc_id}
-                  <p class="open-placeholder">Approval screen not yet available.</p>
                 {/if}
               </td>
             </tr>
@@ -488,13 +503,6 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    font-size: 11.5px;
-    color: var(--md-on-surface-variant);
-  }
-
-  .open-placeholder {
-    flex-basis: 100%;
-    margin: 4px 0 0;
     font-size: 11.5px;
     color: var(--md-on-surface-variant);
   }

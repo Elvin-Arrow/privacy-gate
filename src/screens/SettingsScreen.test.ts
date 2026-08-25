@@ -41,7 +41,7 @@ function mockMount(overrides?: {
 }
 
 function baseProps() {
-  return { onLock: vi.fn(), onNavigateVault: vi.fn() }
+  return { onLock: vi.fn(), onNavigateVault: vi.fn(), onNavigateAudit: vi.fn() }
 }
 
 describe('SettingsScreen — Account (§11.1)', () => {

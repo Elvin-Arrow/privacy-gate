@@ -22,6 +22,14 @@ export type ErrorCode =
   | 'retention_policy_unset'
   | 'retention_loosen_forbidden'
   | 'unsupported_document'
+  | 'already_approved'
+  | 'approval_busy'
+  | 'approval_bad_state'
+  | 'not_approved'
+  | 'preview_expired'
+  | 'variant_name_conflict'
+  | 'cloud_ai_network'
+  | 'cloud_ai_refused'
   | (string & {})
 
 /** api.md §3: `ApiError { code, message }`. `message` is always a non-secret, fixed class
@@ -286,3 +294,238 @@ export interface DetectProgressEvent {
 }
 
 export const DETECT_PROGRESS_EVENT = 'pg://detect-progress'
+
+// ---------------------------------------------------------------------------
+// W33 — api.md §5.4 (approval / consent)
+// ---------------------------------------------------------------------------
+
+/** api.md §4 `FieldDecisionKind`. `#[serde(rename_all = "snake_case")]` on the core
+ * enum (`KeepVisible` → `"keep_visible"`). */
+export type FieldDecisionKind = 'keep_visible' | 'redact'
+
+/** api.md §5.4 `ApprovalLifecycle` (the two values a live view can carry; submit/abort
+ * Out use `"committed"` / `"aborted"`). */
+export type ApprovalLifecycle = 'awaiting_decisions' | 'decided' | 'committed' | 'aborted'
+
+/** api.md §4 `DetectedFieldDto.span`. `text` is present on approval commands only
+ * (C-API-2). */
+export interface DetectedFieldSpanDto {
+  byte_offset: number
+  byte_length: number
+  text: string | null
+  page_index: number
+}
+
+/** api.md §4 `DetectedFieldDto`. */
+export interface DetectedFieldDto {
+  id: string
+  label: string
+  classification: string
+  span: DetectedFieldSpanDto
+  parent_field_id: string | null
+}
+
+/** api.md §4 `FieldDecisionDto`. */
+export interface FieldDecisionDto {
+  field_id: string
+  decision: FieldDecisionKind
+}
+
+/** One page of `ApprovalView` (api.md §5.4 / `session::ApprovalPage`). */
+export interface ApprovalPage {
+  page_index: number
+  spans: ApprovalPageSpan[]
+}
+
+export interface ApprovalPageSpan {
+  byte_offset: number
+  text: string
+  page_index: number
+}
+
+/** `open_approval` / `get_approval_view` Out (api.md §5.4). */
+export interface ApprovalView {
+  approval_session_id: string
+  doc_id: string
+  lifecycle: ApprovalLifecycle
+  pages: ApprovalPage[]
+  fields: DetectedFieldDto[]
+}
+
+export function openApproval(docId: string): Promise<ApprovalView> {
+  return invoke('open_approval', { input: { doc_id: docId } })
+}
+
+export function getApprovalView(approvalSessionId: string): Promise<ApprovalView> {
+  return invoke('get_approval_view', { input: { approval_session_id: approvalSessionId } })
+}
+
+export interface SetFieldDecisionsOut {
+  lifecycle: ApprovalLifecycle
+  unresolved_field_ids: string[]
+}
+
+export function setFieldDecisions(
+  approvalSessionId: string,
+  decisions: FieldDecisionDto[],
+): Promise<SetFieldDecisionsOut> {
+  return invoke('set_field_decisions', {
+    input: { approval_session_id: approvalSessionId, decisions },
+  })
+}
+
+export interface SubmitApprovalOut {
+  summary: DocumentSummary
+  lifecycle: ApprovalLifecycle
+}
+
+export function submitApproval(approvalSessionId: string): Promise<SubmitApprovalOut> {
+  return invoke('submit_approval', { input: { approval_session_id: approvalSessionId } })
+}
+
+export interface AbortApprovalOut {
+  lifecycle: ApprovalLifecycle
+}
+
+export function abortApproval(approvalSessionId: string): Promise<AbortApprovalOut> {
+  return invoke('abort_approval', { input: { approval_session_id: approvalSessionId } })
+}
+
+// ---------------------------------------------------------------------------
+// W34 — api.md §5.6 (share preview / commit, person-export)
+// ---------------------------------------------------------------------------
+
+/** api.md §4 `ShareKind`. */
+export type ShareKind = 'export_to_person' | 'share_to_ai'
+
+/** api.md §4 `ShareRequestDto`. Maps are JSON objects (Rust `HashMap`). */
+export interface ShareRequestDto {
+  kind: ShareKind
+  doc_ids: string[]
+  per_doc_overrides: Record<string, FieldDecisionDto[]>
+  applied_variant_ids: Record<string, string>
+  recipient_note: string | null
+  ai_instruction: string | null
+}
+
+/** api.md §5.6 `manifest[]`. Field **ids** only — no span text (C-API-2). */
+export interface ShareManifestEntry {
+  doc_id: string
+  visible_field_ids: string[]
+  redacted_field_ids: string[]
+}
+
+/** `preview_share` Out. `pdf_bytes` is `Vec<u8>` on the wire (number[] under JSON invoke). */
+export interface SharePreview {
+  preview_token: string
+  expires_at: string
+  kind: ShareKind
+  overrides_in_effect: boolean
+  suggested_filename: string | null
+  pdf_bytes: number[] | null
+  ai_payload_preview: string | null
+  manifest: ShareManifestEntry[]
+  no_originals_left_device: boolean[]
+}
+
+export function previewShare(request: ShareRequestDto): Promise<SharePreview> {
+  return invoke('preview_share', { input: { request } })
+}
+
+/** `commit_share` Out. Export fills `pdf_bytes` + `suggested_filename`; AI fills `output_text`. */
+export interface CommitShareOut {
+  kind: ShareKind
+  pdf_bytes: number[] | null
+  suggested_filename: string | null
+  output_text: string | null
+  audit_event_id: number
+}
+
+export function commitShare(previewToken: string): Promise<CommitShareOut> {
+  return invoke('commit_share', { input: { preview_token: previewToken } })
+}
+
+// ---------------------------------------------------------------------------
+// W35 — api.md §5.8 (audit list)
+// ---------------------------------------------------------------------------
+
+/** api.md §4 `EventType`. */
+export type EventType =
+  | 'import'
+  | 'detect'
+  | 'approve'
+  | 'share'
+  | 'discard_original'
+  | 'delete'
+
+/** api.md §5.8 `AuditEventDto`. `payload` is ids/labels only — never span text (C-API-2). */
+export interface AuditEventDto {
+  sequence: number
+  event_type: EventType
+  doc_id: string | null
+  produced_at: string
+  no_originals_left_device: boolean | null
+  payload: Record<string, unknown>
+}
+
+/** `list_audit_events` In. `limit` default on the core is 50; 1..=200. */
+export interface ListAuditEventsIn {
+  doc_id: string | null
+  event_type: EventType | null
+  after_sequence: number | null
+  limit: number
+}
+
+/** `list_audit_events` Out. */
+export interface ListAuditEventsOut {
+  events: AuditEventDto[]
+  next_sequence: number | null
+}
+
+export function listAuditEvents(input: ListAuditEventsIn): Promise<ListAuditEventsOut> {
+  return invoke('list_audit_events', { input })
+}
+
+// ---------------------------------------------------------------------------
+// W36 — api.md §5.5 (variants)
+// ---------------------------------------------------------------------------
+
+/** One row of `list_variants` / `save_variant` Out. */
+export interface VariantSummary {
+  variant_id: string
+  name: string
+  created_at: string
+}
+
+export interface ListVariantsOut {
+  variants: VariantSummary[]
+}
+
+export function listVariants(docId: string): Promise<ListVariantsOut> {
+  return invoke('list_variants', { input: { doc_id: docId } })
+}
+
+export interface GetVariantOut {
+  variant_id: string
+  name: string
+  created_at: string
+  overrides: FieldDecisionDto[]
+}
+
+export function getVariant(docId: string, variantId: string): Promise<GetVariantOut> {
+  return invoke('get_variant', { input: { doc_id: docId, variant_id: variantId } })
+}
+
+export interface SaveVariantIn {
+  doc_id: string
+  name: string
+  overrides: FieldDecisionDto[]
+}
+
+export function saveVariant(input: SaveVariantIn): Promise<VariantSummary> {
+  return invoke('save_variant', { input })
+}
+
+export function deleteVariant(docId: string, variantId: string): Promise<{ ok: true }> {
+  return invoke('delete_variant', { input: { doc_id: docId, variant_id: variantId } })
+}

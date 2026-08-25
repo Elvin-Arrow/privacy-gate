@@ -3,18 +3,18 @@
   // Audit trail, Settings; a Lock control always visible"). Extracted in W31 so Settings
   // and Vault share one header instead of forking W30's inline nav markup.
   //
-  // Audit trail is a later chunk (W3x+); rendering it as a real nav target here would fake
-  // content that doesn't exist yet, so it stays a non-interactive label (not a button, not
-  // a link) until that screen lands — see docs/dev-log/0043-w31-ui-settings.md.
+  // W35: Audit trail is a real nav target (`AuditScreen`), matching Vault and Settings.
 
   let {
     active,
     onNavigateVault,
+    onNavigateAudit,
     onNavigateSettings,
     onLock,
   }: {
-    active: 'vault' | 'settings'
+    active: 'vault' | 'settings' | 'audit'
     onNavigateVault: () => void
+    onNavigateAudit: () => void
     onNavigateSettings: () => void
     onLock: () => void
   } = $props()
@@ -31,7 +31,14 @@
     >
       Vault
     </button>
-    <span class="nav-item disabled">Audit trail</span>
+    <button
+      type="button"
+      class="nav-item"
+      class:active={active === 'audit'}
+      onclick={onNavigateAudit}
+    >
+      Audit trail
+    </button>
     <button
       type="button"
       class="nav-item"
@@ -73,11 +80,6 @@
     font: inherit;
     color: var(--md-on-surface-variant);
     cursor: pointer;
-  }
-
-  .nav-item.disabled {
-    opacity: 0.5;
-    cursor: default;
   }
 
   .nav-item.active {

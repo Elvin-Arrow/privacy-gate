@@ -6,16 +6,26 @@ import { INTEGRITY_BODY, INTEGRITY_REPORT_FILENAME, INTEGRITY_TITLE } from '../l
 const invokeMock = vi.hoisted(() => vi.fn())
 const saveMock = vi.hoisted(() => vi.fn())
 const writeTextFileMock = vi.hoisted(() => vi.fn())
+const documentDirMock = vi.hoisted(() => vi.fn())
+const joinMock = vi.hoisted(() => vi.fn())
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: invokeMock }))
 vi.mock('@tauri-apps/plugin-dialog', () => ({ save: saveMock }))
 vi.mock('@tauri-apps/plugin-fs', () => ({ writeTextFile: writeTextFileMock }))
+vi.mock('@tauri-apps/api/path', () => ({
+  documentDir: documentDirMock,
+  join: joinMock,
+}))
 
 describe('IntegrityScreen', () => {
   beforeEach(() => {
     invokeMock.mockReset()
     saveMock.mockReset()
     writeTextFileMock.mockReset()
+    documentDirMock.mockReset()
+    joinMock.mockReset()
+    documentDirMock.mockResolvedValue('/Users/me/Documents')
+    joinMock.mockImplementation(async (dir: string, name: string) => `${dir}/${name}`)
   })
 
   it('shows the §13.1 title and body', () => {
@@ -76,7 +86,10 @@ describe('IntegrityScreen', () => {
     })
     expect(invokeMock).toHaveBeenCalledWith('get_integrity_report')
     expect(saveMock).toHaveBeenCalledWith(
-      expect.objectContaining({ defaultPath: INTEGRITY_REPORT_FILENAME }),
+      expect.objectContaining({
+        defaultPath: `/Users/me/Documents/${INTEGRITY_REPORT_FILENAME}`,
+        filters: [{ name: 'JSON', extensions: ['json'] }],
+      }),
     )
   })
 

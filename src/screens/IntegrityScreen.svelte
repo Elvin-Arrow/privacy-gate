@@ -1,6 +1,7 @@
 <script lang="ts">
   import { save } from '@tauri-apps/plugin-dialog'
   import { writeTextFile } from '@tauri-apps/plugin-fs'
+  import { documentDir, join } from '@tauri-apps/api/path'
   import { getIntegrityReport, isApiError } from '../lib/api'
   import { INTEGRITY_BODY, INTEGRITY_REPORT_FILENAME, INTEGRITY_TITLE } from '../lib/copy'
 
@@ -18,10 +19,16 @@
     saving = true
     try {
       const report = await getIntegrityReport()
-      // ui.md §10.4 sequence, applied to the §13.1 "same save-dialog rules" note: open the
-      // OS save dialog first; a cancel (`path` is `null`) does nothing further.
+      // ui.md §13.1 / §10.4: same save-dialog rules — documents folder, JSON filter,
+      // cancel writes nothing. Default name is privacy-gate-integrity-report.json.
+      let defaultPath = INTEGRITY_REPORT_FILENAME
+      try {
+        defaultPath = await join(await documentDir(), INTEGRITY_REPORT_FILENAME)
+      } catch {
+        // Fall back to the bare filename if the path plugin is unavailable.
+      }
       const path = await save({
-        defaultPath: INTEGRITY_REPORT_FILENAME,
+        defaultPath,
         filters: [{ name: 'JSON', extensions: ['json'] }],
       })
       if (!path) {

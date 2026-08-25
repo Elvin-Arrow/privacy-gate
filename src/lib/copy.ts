@@ -96,3 +96,122 @@ export const VAULT_EMPTY_STATE_COPY = 'No documents yet. Import a document to ge
  * document" copy. */
 export const DELETE_DOCUMENT_CONFIRM_COPY =
   'This deletes the approved version, any kept original, and variants. It cannot be undone.'
+
+// ---------------------------------------------------------------------------
+// W33 — Approval / consent (ui.md §8, §2.3, §15)
+// ---------------------------------------------------------------------------
+
+/** ui.md §8 / §2.3 primary action. */
+export const APPROVE_AND_STORE_LABEL = 'Approve and store'
+
+/** ui.md §8 Cancel (calls `abort_approval`). */
+export const APPROVAL_CANCEL_LABEL = 'Cancel'
+
+/** ui.md §2.3 keep/redact segment labels — words, never colour alone (NFR-U2). */
+export const KEEP_LABEL = 'Keep'
+export const REDACT_LABEL = 'Redact'
+
+/** Screen title from the §8 mockup; §8 itself doesn't name a heading string. */
+export const APPROVAL_TITLE = 'Review before approving'
+
+/** Shown while `lifecycle === "awaiting_decisions"`. */
+export const APPROVAL_PENDING_COPY = 'Every detected field needs a Keep or Redact decision.'
+
+/** Shown when `lifecycle === "decided"`. */
+export const APPROVAL_DECIDED_COPY = 'All fields decided'
+
+/** Open on an already-approved document (api.md `already_approved`). Further changes
+ * are share-time overrides (W34), not re-approval (dev-plan W33: "Do not: re-approve
+ * after commit"). */
+export const ALREADY_APPROVED_COPY =
+  'This document is already approved. Further changes are made when you share it.'
+
+/** api.md `approval_busy`: one RAM session per process. */
+export const APPROVAL_BUSY_COPY =
+  'Another document is already being reviewed. Finish or cancel that review first.'
+
+// ---------------------------------------------------------------------------
+// W34 — Share preview / save dialog (ui.md §10, §15)
+// ---------------------------------------------------------------------------
+
+/** Mockup / §10 heading. */
+export const SHARE_TITLE = 'Share preview'
+
+/** ui.md §2.3 / §10.4 hero action and save-dialog title. */
+export const SAVE_REDACTED_PDF_LABEL = 'Save redacted PDF'
+
+/** ui.md §15 FR-6.2 ephemeral override — banner, never a toast. */
+export const EPHEMERAL_OVERRIDE_COPY =
+  'These changes apply to this share only. The approved version in your vault will not change.'
+
+/** ui.md §15 `preview_expired`. */
+export const PREVIEW_EXPIRED_COPY =
+  'This preview expired. Generate a new preview before exporting.'
+
+/** After commit succeeds but the scoped write fails (ui.md §10.4 step 5). */
+export const RETRY_SAVE_LABEL = 'Retry save'
+
+export const SHARE_WRITE_FAILED_COPY =
+  'The export is recorded in the audit trail. You can retry saving the file.'
+
+// ---------------------------------------------------------------------------
+// W35 — Audit trail (ui.md §12, §15)
+// ---------------------------------------------------------------------------
+
+/** Mockup / §12 heading and primary-nav label. */
+export const AUDIT_TITLE = 'Audit trail'
+
+/** ui.md §12 empty / filtered table. */
+export const AUDIT_EMPTY_FILTER_COPY = 'No audit events match this filter.'
+
+/** Event types in words (ui.md §12). Share rows use the kind-specific labels below. */
+export const AUDIT_EVENT_TYPE_LABELS = {
+  import: 'Imported',
+  detect: 'Detected',
+  approve: 'Approved',
+  share: 'Shared',
+  discard_original: 'Discarded original',
+  delete: 'Deleted',
+} as const
+
+/** ui.md §12 share-row reading level (NFR-U2). */
+export const AUDIT_SHARE_EXPORT_LABEL = 'Exported PDF'
+export const AUDIT_SHARE_AI_LABEL = 'Asked Cloud AI'
+
+export const AUDIT_ORIGINALS_GONE_COPY = 'No originals remained on device'
+export const AUDIT_ORIGINALS_KEPT_COPY = 'Original kept on device'
+
+// ---------------------------------------------------------------------------
+// W36 — Variants + Cloud AI share confirm (ui.md §9, §10, §15)
+// ---------------------------------------------------------------------------
+
+export const VARIANTS_TITLE = 'Variants'
+
+/** ui.md §9 empty state, verbatim. */
+export const VARIANTS_EMPTY_COPY =
+  'No saved variants for this document. Customize keep/redact during share preview and save them as a variant to reuse later.'
+
+/** ui.md §9 / design §3.4 — no in-place edit. */
+export const VARIANT_NO_EDIT_COPY = 'To change this, delete it and save a new variant.'
+
+export const MANAGE_VARIANTS_LABEL = 'Manage variants'
+export const SAVE_VARIANT_LABEL = 'Save as variant'
+export const DELETE_VARIANT_LABEL = 'Delete variant'
+
+export const VARIANT_NAME_CONFLICT_COPY =
+  'A variant with that name already exists for this document. Choose a different name.'
+
+export const EXPORT_PDF_LABEL = 'Export PDF'
+export const ASK_CLOUD_AI_LABEL = 'Ask Cloud AI'
+export const SEND_TO_AI_LABEL = 'Send to Cloud AI'
+export const AI_PREVIEW_LABEL = 'Preview'
+
+/** ui.md §15 AI confirm — visible before commit, not a toast. */
+export const AI_CONFIRM_COPY =
+  'Only the approved, redacted text shown in the preview will be sent to the host you configured.'
+
+export const SHARE_AI_FAILED_COPY =
+  'The attempt is recorded in the audit trail. You can change the instruction and preview again.'
+
+/** In-page CTA distinct from AppShell's Settings nav item. */
+export const OPEN_SETTINGS_LABEL = 'Open Settings'

@@ -30,7 +30,15 @@
   const MIN_PASSPHRASE_LENGTH = 8
   const RETENTION_POLICIES: RetentionPolicy[] = ['discard', 'retain', 'never_retain']
 
-  let { onLock, onNavigateVault }: { onLock: () => void; onNavigateVault: () => void } = $props()
+  let {
+    onLock,
+    onNavigateVault,
+    onNavigateAudit,
+  }: {
+    onLock: () => void
+    onNavigateVault: () => void
+    onNavigateAudit: () => void
+  } = $props()
 
   // --- Account (§11.1) --------------------------------------------------
   let accountId = $state('')
@@ -215,7 +223,13 @@
 </script>
 
 <div class="screen">
-  <AppShell active="settings" {onNavigateVault} onNavigateSettings={() => {}} {onLock} />
+  <AppShell
+    active="settings"
+    {onNavigateVault}
+    {onNavigateAudit}
+    onNavigateSettings={() => {}}
+    {onLock}
+  />
 
   <main>
     <section class="card">
