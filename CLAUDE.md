@@ -224,9 +224,15 @@ overrides). `W37` (acceptance pack AC-1..AC-7 — `core/tests/acceptance_w37.rs`
 named in-process command suite CI prints; fills AC-2 multi-doc order and AC-5
 stolen-vault-after-approve; no real Cloud AI host). `W38` (mutation gate —
 `scripts/mutation-gate.sh` shards testing.md §5.3 at S = 1.00 after equivalent skips;
-CI matrix job `mutants` is required; nightly full `pg-core` minus §5.4). `W39` (perf +
-no-plaintext watcher) is next; see `docs/dev-plan.md` for the full sequence and
-`docs/dev-log/` for what each completed chunk did and any problems hit along the way.
+CI matrix job `mutants` is required; nightly full `pg-core` minus §5.4), and `W39`
+(perf budgets + no-plaintext-to-disk watcher — `core/tests/no_plaintext_watcher_w39.rs`
+is PR-gated; `core/tests/perf_w39.rs` is five nightly-only `#[ignore]`d tests against
+design.md §7; documents two spec/implementation gaps — fused import+detect, and
+`list_audit_events`'s real 200-row `limit` cap vs. design.md's "last 1000 events" — rather
+than papering over them; zero production code changed). This closes dev-plan.md's
+W0–W39 chunk sequence (slice H, "harden"); see `docs/dev-plan.md` for what, if anything,
+comes after and `docs/dev-log/` for what each completed chunk did and any problems hit
+along the way.
 
 ## Agent skills
 
