@@ -3,7 +3,7 @@
 //! Filename sanitization and export-PDF assembly. Session commands own the preview token
 //! lifecycle. Ephemeral overrides / applied variants are W26; Cloud AI is W27.
 
-use crate::catalog::RedactedPage;
+use crate::catalog::{EffectiveRetention, RedactedPage};
 use crate::export::{render_redacted_pages, PdfExportInfo};
 
 const PREVIEW_TTL_MS: u64 = 10 * 60 * 1000;
@@ -80,6 +80,19 @@ pub fn title_from_filename(filename: &str) -> String {
         .to_string()
 }
 
+/// design.md §2.6: Share Engine sets `no_originals_left_device` true iff the document's
+/// retention was discard (no original exists to leave) **or** this share transmits only
+/// the approved version and never the retained original. testing.md §5.3 gates this
+/// helper; do not inline a constant `true` at the call site — that mutant survives
+/// `is_some()` assertions.
+#[must_use]
+pub fn no_originals_left_device(
+    retention: EffectiveRetention,
+    share_transmits_only_approved: bool,
+) -> bool {
+    retention == EffectiveRetention::Discard || share_transmits_only_approved
+}
+
 /// Assemble a newly rendered export PDF (architecture §11) with api.md §7.2 metadata.
 #[must_use]
 pub fn assemble_export_pdf(
@@ -97,6 +110,29 @@ pub fn assemble_export_pdf(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::catalog::EffectiveRetention;
+
+    #[test]
+    fn no_originals_left_device_is_true_unless_retain_and_original_would_egress() {
+        assert!(no_originals_left_device(EffectiveRetention::Discard, false));
+        assert!(no_originals_left_device(EffectiveRetention::Retain, true));
+        assert!(!no_originals_left_device(EffectiveRetention::Retain, false));
+    }
+
+    #[test]
+    fn preview_ttl_ms_is_ten_minutes() {
+        // api.md §5.6: tokens expire after 10 minutes. Kills `10 * 60 * 1000` arithmetic
+        // mutants (`*`→`+`) that still yield a plausible non-zero TTL.
+        assert_eq!(preview_ttl_ms(), 600_000);
+    }
+
+    #[test]
+    fn yyyymmdd_utc_formats_a_known_unix_ms() {
+        // Independent of `suggested_filename`'s own call, so a body-replace mutant of
+        // `yyyymmdd_utc` cannot agree with itself. 2024-01-01T00:00:00Z.
+        assert_eq!(yyyymmdd_utc(1_704_067_200_000), "20240101");
+        assert_eq!(yyyymmdd_utc(0), "19700101");
+    }
 
     #[test]
     fn sanitize_stem_collapses_punctuation_and_caps_length() {
@@ -109,15 +145,18 @@ mod tests {
 
     #[test]
     fn suggested_filename_single_and_bundle() {
-        let t = 1_777_200_000_000; // well after the specs were written
-        let day = yyyymmdd_utc(t);
+        let t = 1_704_067_200_000; // 2024-01-01T00:00:00Z — hardcoded so yyyymmdd mutants cannot agree with themselves
         assert_eq!(
             suggested_filename(&["letter.txt".into()], t),
-            format!("letter-redacted-{day}.pdf")
+            "letter-redacted-20240101.pdf"
         );
         assert_eq!(
             suggested_filename(&["a.txt".into(), "b.txt".into()], t),
-            format!("privacy-gate-2docs-redacted-{day}.pdf")
+            "privacy-gate-2docs-redacted-20240101.pdf"
+        );
+        assert_eq!(
+            suggested_filename(&[], t),
+            "privacy-gate-0docs-redacted-20240101.pdf"
         );
     }
 }

@@ -63,3 +63,34 @@ jobs:
             exit 0
           fi
           cargo test -p pg-core --test ollama_w15b nightly_real_ollama -- --ignored --nocapture
+
+  mutants-core:
+    name: Full-crate mutants (testing.md §5.6)
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    env:
+      CARGO_BUILD_JOBS: "1"
+      MUTANTS_IN_PLACE: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config \
+            libssl-dev
+
+      - name: Install cargo-mutants
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-mutants
+
+      - name: Mutate pg-core minus testing.md §5.4
+        run: bash scripts/mutation-gate.sh nightly

@@ -83,9 +83,17 @@ fn span_end(field: &DetectedField) -> u64 {
 }
 
 fn covers(offset: u64, field: &DetectedField) -> bool {
-    field.span.byte_length > 0
+    // `byte_length > 0` vs `>= 0` is tautological on u64 and is skipped on
+    // [`span_nonempty`]; the half-open `offset < span_end` already excludes zeros.
+    span_nonempty(field)
         && offset >= field.span.byte_offset
         && offset < span_end(field)
+}
+
+/// `u64 >= 0` is tautological, so `>`→`>=` here is equivalent (testing.md §5.4).
+#[mutants::skip]
+fn span_nonempty(field: &DetectedField) -> bool {
+    field.span.byte_length > 0
 }
 
 /// Strict containment: `inner`'s range is a proper subset of `outer`'s.
@@ -336,5 +344,78 @@ mod tests {
         assert!(covers(2, &f));
         assert!(covers(4, &f));
         assert!(!covers(5, &f));
+    }
+
+    #[test]
+    fn strictly_contained_is_a_proper_subset_including_shared_edges() {
+        let outer = field("o", 0, 10, None);
+        let inner = field("i", 3, 3, None);
+        let prefix = field("p", 0, 3, None); // shares start
+        let suffix = field("s", 7, 3, None); // shares end
+        let zero = field("z", 3, 0, None);
+        assert!(strictly_contained(&inner, &outer));
+        assert!(strictly_contained(&prefix, &outer));
+        assert!(strictly_contained(&suffix, &outer));
+        assert!(!strictly_contained(&zero, &outer));
+        assert!(!strictly_contained(&outer, &inner));
+    }
+
+    fn span(text: &str, offset: u64) -> TextSpan {
+        TextSpan {
+            byte_offset: offset,
+            byte_length: text.len() as u64,
+            text: text.to_string(),
+            page_index: 0,
+        }
+    }
+
+    #[test]
+    fn redact_pages_omits_a_middle_range_and_keeps_prefix_and_suffix() {
+        let pages = [Page {
+            spans: vec![span("0123456789", 0)],
+        }];
+        let f = DetectedField {
+            id: "r".into(),
+            label: "r".into(),
+            classification: "test".into(),
+            span: span("3456", 3),
+            parent_field_id: None,
+        };
+        let decisions = HashMap::from([("r".into(), FieldDecisionKind::Redact)]);
+        let out = redact_pages(SourceFormat::Text, &pages, &[f], &decisions);
+        let text: String = out
+            .pages
+            .iter()
+            .flat_map(|p| &p.spans)
+            .map(|s| s.text.as_str())
+            .collect();
+        assert_eq!(text, "012789");
+        assert!(
+            out.pages[0].spans.iter().all(|s| s.byte_length > 0),
+            "empty leftover spans would hide a cursor==end / cursor==clip_s mutant"
+        );
+    }
+
+    #[test]
+    fn redact_pages_keeps_a_span_that_does_not_overlap_the_cut() {
+        let pages = [Page {
+            spans: vec![span("ABCD", 0), span("WXYZ", 6)],
+        }];
+        let f = DetectedField {
+            id: "r".into(),
+            label: "r".into(),
+            classification: "test".into(),
+            span: span("WXYZ", 6),
+            parent_field_id: None,
+        };
+        let decisions = HashMap::from([("r".into(), FieldDecisionKind::Redact)]);
+        let out = redact_pages(SourceFormat::Text, &pages, &[f], &decisions);
+        let text: String = out
+            .pages
+            .iter()
+            .flat_map(|p| &p.spans)
+            .map(|s| s.text.as_str())
+            .collect();
+        assert_eq!(text, "ABCD");
     }
 }

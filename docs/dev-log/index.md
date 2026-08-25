@@ -56,6 +56,7 @@ diary. Each entry links to affected specs and decisions.
 - [0047-w35-ui-audit](./0047-w35-ui-audit.md) — W35: audit table (`list_audit_events`) + integrity fail-closed — Audit trail is real primary nav; share rows answer what/to whom without field text; `pg://session-changed` to degraded never reaches Vault; Save report uses the documents-folder save dialog. 88 Vitest tests. Variants + Cloud AI share confirm is W36.
 - [0048-w36-ui-variants-ai](./0048-w36-ui-variants-ai.md) — W36: variants empty/list + Cloud AI share confirm — `VariantsScreen` empty copy and delete-with-confirm (no edit); vault **Manage variants**; ShareScreen Ask Cloud AI shows §15 confirm + read-only payload before commit. 94 Vitest tests. Acceptance pack AC-1..AC-7 is W37.
 - [0049-w37-acceptance-pack](./0049-w37-acceptance-pack.md) — W37: AC-1..AC-7 in-process pack (`core/tests/acceptance_w37.rs`) — fills multi-doc share order and stolen-vault-after-approve gaps; CI prints the seven `AC-n` names. Mutation gate is W38.
+- [0050-w38-mutation-gate](./0050-w38-mutation-gate.md) — W38: PR `cargo-mutants` shards on testing.md §5.3 (S = 1.00 after equivalent skips); nightly full `pg-core`; CI `mutants` job required. Perf/watcher is W39.
 
 ## Navigation
 

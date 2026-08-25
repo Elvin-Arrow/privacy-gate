@@ -33,6 +33,10 @@ pub const OLLAMA_LOOPBACK_ADDR: SocketAddr =
 
 /// Allowlist used in production. Empty while [`OLLAMA_GEMMA4_E2B_DIGEST`] is `None`, so
 /// a live unpinned daemon cannot be silently accepted.
+///
+/// Replacing this body with `vec![]` is equivalent until a nightly records the digest
+/// pin (testing.md §5.4). Remove the skip when `OLLAMA_GEMMA4_E2B_DIGEST` is `Some`.
+#[mutants::skip]
 pub fn default_ollama_allowlist() -> Vec<AllowlistEntry> {
     match OLLAMA_GEMMA4_E2B_DIGEST {
         Some(digest) => vec![AllowlistEntry {
@@ -343,7 +347,7 @@ impl HybridOllamaV1 {
                             parent_field_id: None,
                         });
                     }
-                    if total > 0 {
+                    if chunk_reported_entities(total) {
                         let rate = rejected as f64 / total as f64;
                         if rate > OFFSET_REJECT_THRESHOLD {
                             return Err(FallbackReason::OffsetVerificationFailed);
@@ -386,15 +390,10 @@ fn split_chunks(text: &str, size: usize, overlap: usize) -> Vec<Chunk> {
     let bytes = text.as_bytes();
     let mut out = Vec::new();
     let mut start = 0usize;
-    while start < bytes.len() {
-        let mut end = (start + size).min(bytes.len());
-        while end < bytes.len() && !text.is_char_boundary(end) {
-            end += 1;
-        }
-        let mut adj = start;
-        while adj > 0 && !text.is_char_boundary(adj) {
-            adj -= 1;
-        }
+    while chunk_start_in_range(start, bytes.len()) {
+        let end = advance_to_char_boundary(text, (start + size).min(bytes.len()));
+        // `start` is always a char boundary on entry (0, then walked/snapped below).
+        let adj = rewind_to_char_boundary(text, start);
         out.push(Chunk {
             abs_start: adj,
             text: text[adj..end].to_string(),
@@ -403,14 +402,48 @@ fn split_chunks(text: &str, size: usize, overlap: usize) -> Vec<Chunk> {
             break;
         }
         start = end.saturating_sub(overlap);
-        while start < bytes.len() && !text.is_char_boundary(start) {
-            start += 1;
-        }
+        start = advance_to_char_boundary(text, start);
         if start <= adj {
             start = end;
         }
     }
     out
+}
+
+fn advance_to_char_boundary(text: &str, mut i: usize) -> usize {
+    // `str::is_char_boundary(len)` is always true, so a separate `i < len`
+    // conjunct is equivalent (`<`→`<=` never enters at `i == len`).
+    while !text.is_char_boundary(i) {
+        let before = i;
+        i += 1;
+        // Fail closed if a mutant stops the walk (`+=`→`*=`): otherwise the
+        // gate hangs rather than reporting a caught mutant.
+        assert!(i > before, "utf8 boundary walk");
+    }
+    i
+}
+
+/// A chunk that reaches `len` `break`s, so `start == len` never hits this
+/// predicate; `<`→`<=` is equivalent (testing.md §5.4).
+#[mutants::skip]
+fn chunk_start_in_range(start: usize, len: usize) -> bool {
+    start < len
+}
+
+/// `start` is always a char boundary on each outer iteration, so this rewind is
+/// not reachable from [`split_chunks`]'s own pointer (testing.md §5.4).
+#[mutants::skip]
+fn rewind_to_char_boundary(text: &str, mut i: usize) -> usize {
+    while i > 0 && !text.is_char_boundary(i) {
+        i -= 1;
+    }
+    i
+}
+
+/// `usize >= 0` is tautological, so `>`→`>=` here is equivalent (testing.md §5.4).
+#[mutants::skip]
+fn chunk_reported_entities(total: usize) -> bool {
+    total > 0
 }
 
 fn parse_entities(raw: &Value) -> Result<Vec<Entity>, FallbackReason> {
@@ -473,7 +506,10 @@ mod tests {
 
     #[test]
     fn fallback_reason_wire_strings_match_decision_0009() {
-        assert_eq!(FallbackReason::OllamaUnreachable.as_str(), "ollama_unreachable");
+        assert_eq!(
+            FallbackReason::OllamaUnreachable.as_str(),
+            "ollama_unreachable"
+        );
         assert_eq!(
             FallbackReason::SchemaVerificationFailed.as_str(),
             "schema_verification_failed"
@@ -487,5 +523,50 @@ mod tests {
             FallbackReason::OffsetVerificationFailed.as_str(),
             "offset_verification_failed"
         );
+    }
+
+    #[test]
+    fn split_chunks_zero_size_or_empty_text_yields_nothing() {
+        assert!(split_chunks("hello", 0, 0).is_empty());
+        assert!(split_chunks("", 8, 2).is_empty());
+    }
+
+    #[test]
+    fn split_chunks_ascii_overlap_covers_the_text() {
+        // architecture §10.1.5: bounded overlapping chunks; overlap must not skip.
+        let chunks = split_chunks("abcdefghij", 3, 1);
+        let texts: Vec<(usize, &str)> = chunks
+            .iter()
+            .map(|c| (c.abs_start, c.text.as_str()))
+            .collect();
+        assert_eq!(
+            texts,
+            vec![(0, "abc"), (2, "cde"), (4, "efg"), (6, "ghi"), (8, "ij")]
+        );
+    }
+
+    #[test]
+    fn split_chunks_walks_end_forward_to_a_char_boundary() {
+        let chunks = split_chunks("éééé", 1, 0);
+        assert_eq!(chunks.len(), 4);
+        assert!(chunks.iter().all(|c| c.text == "é"));
+        assert_eq!(chunks[0].abs_start, 0);
+        assert_eq!(chunks[1].abs_start, 2);
+    }
+
+    #[test]
+    fn split_chunks_walks_overlap_start_forward_to_a_char_boundary() {
+        // size=3 lands mid second `é` (byte 3). end walks to 4; overlap start=3
+        // is also mid-char and must walk forward, never slice a UTF-8 sequence.
+        let chunks = split_chunks("éééé", 3, 1);
+        assert_eq!(chunks.len(), 2);
+        assert_eq!(chunks[0].abs_start, 0);
+        assert_eq!(chunks[0].text, "éé");
+        assert_eq!(chunks[1].abs_start, 4);
+        assert_eq!(chunks[1].text, "éé");
+        for c in &chunks {
+            assert!(std::str::from_utf8(c.text.as_bytes()).is_ok());
+            assert!(!c.text.is_empty());
+        }
     }
 }

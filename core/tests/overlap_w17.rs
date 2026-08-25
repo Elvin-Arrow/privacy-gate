@@ -92,6 +92,26 @@ fn nested_keep_inside_redact_wins_by_geometry_without_parent_id() {
     assert_eq!(redacted_ranges(10, &fields, &decisions), vec![(0, 3), (6, 10)]);
 }
 
+/// `(is > os || ie < oe)` must stay a disjunction: a nested keep that shares the
+/// outer start or end is still a proper subset (design §3.5 innermost keep).
+#[test]
+fn nested_keep_sharing_an_outer_edge_stays_visible() {
+    let decisions = dec(&[
+        ("outer", FieldDecisionKind::Redact),
+        ("inner", FieldDecisionKind::KeepVisible),
+    ]);
+    let prefix = [
+        field("outer", 0, 10, None),
+        field("inner", 0, 3, None),
+    ];
+    assert_eq!(redacted_ranges(10, &prefix, &decisions), vec![(3, 10)]);
+    let suffix = [
+        field("outer", 0, 10, None),
+        field("inner", 7, 3, None),
+    ];
+    assert_eq!(redacted_ranges(10, &suffix, &decisions), vec![(0, 7)]);
+}
+
 #[test]
 fn nested_redact_inside_keep_hides_only_the_inner_span() {
     // design §3.5: "a keep on an outer field does not force an inner field the user
@@ -184,6 +204,18 @@ fn zero_length_field_covers_nothing() {
     let fields = [field("a", 3, 0, None)];
     let decisions = dec(&[("a", FieldDecisionKind::Redact)]);
     assert!(redacted_ranges(8, &fields, &decisions).is_empty());
+}
+
+/// A zero-length Keep must not count as a nested keep — that would un-redact the
+/// whole outer span (`>`→`>=` on `byte_length` in `strictly_contained`).
+#[test]
+fn zero_length_keep_inside_redact_does_not_unredact_the_outer() {
+    let fields = [field("outer", 0, 10, None), field("inner", 3, 0, None)];
+    let decisions = dec(&[
+        ("outer", FieldDecisionKind::Redact),
+        ("inner", FieldDecisionKind::KeepVisible),
+    ]);
+    assert_eq!(redacted_ranges(10, &fields, &decisions), vec![(0, 10)]);
 }
 
 #[test]

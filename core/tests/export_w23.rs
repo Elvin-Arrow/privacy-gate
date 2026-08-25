@@ -12,7 +12,7 @@
 //! tokens; filename algorithm (api.md §7.1).
 
 use pg_core::catalog::{RedactedDocument, RedactedPage};
-use pg_core::export::render_redacted_pdf;
+use pg_core::export::{render_redacted_pages, render_redacted_pdf, PdfExportInfo};
 use pg_core::importer::{SourceFormat, TextSpan};
 
 const REDACT: &str = "PG-CANARY-REDACT-7F3A";
@@ -97,6 +97,20 @@ fn info_dictionary_names_privacy_gate_and_omits_author() {
     );
     assert!(!as_str.contains("/Subject"), "api.md §7.2: Subject omitted");
     assert!(!as_str.contains("/Keywords"), "api.md §7.2: Keywords omitted");
+}
+
+#[test]
+fn info_dictionary_date_is_unix_seconds_not_millis() {
+    let info = PdfExportInfo {
+        title: "letter-redacted-20240101.pdf".into(),
+        created_unix_ms: 1_704_067_200_000, // 2024-01-01T00:00:00Z
+    };
+    let pdf = render_redacted_pages(&remaining(KEEP).pages, Some(&info));
+    let as_str = String::from_utf8_lossy(&pdf);
+    assert!(
+        as_str.contains("D:20240101"),
+        "api.md §7.2 date must be civil time from unix_ms/1000, got {as_str}"
+    );
 }
 
 #[test]

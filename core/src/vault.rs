@@ -1632,4 +1632,50 @@ mod tests {
         assert!(nonce.iter().all(|&b| b == 0));
         assert!(ct.iter().all(|&b| b == 0));
     }
+
+    /// testing.md §5.3: delete is overwrite-and-drop. `destroy_document` tests only see
+    /// the drop (row gone). A body-replace of [`overwrite_artifact_key_material`] with
+    /// `Ok(())` still drops the row, so this asserts the UPDATE to zeros independently.
+    #[test]
+    fn overwrite_artifact_key_material_writes_zeros_in_place() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("v.db");
+        let key = Zeroizing::new([0x5au8; KEY_LEN]);
+        let v = SqlCipherVault::new(path);
+        v.open(&key).expect("open");
+        v.with_conn_mut(|conn| {
+            let tx = conn
+                .transaction()
+                .map_err(|_| VaultError::Backend("tx"))?;
+            tx.execute(
+                "INSERT INTO artifact (
+                    artifact_id, kind, doc_id, format_version,
+                    wrapped_dek, nonce, ciphertext, created_at_unix_ms
+                 ) VALUES (?1, 8, ?2, 1, ?3, ?4, ?5, 0)",
+                rusqlite::params![
+                    "art-overwrite",
+                    "doc-overwrite",
+                    vec![0xABu8; 16],
+                    vec![0xCDu8; 24],
+                    vec![0xEFu8; 32],
+                ],
+            )
+            .map_err(|_| VaultError::Backend("insert"))?;
+            overwrite_artifact_key_material(&tx, "art-overwrite")?;
+            let (dek, nonce, ct): (Vec<u8>, Vec<u8>, Vec<u8>) = tx
+                .query_row(
+                    "SELECT wrapped_dek, nonce, ciphertext FROM artifact
+                     WHERE artifact_id = ?1",
+                    ["art-overwrite"],
+                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+                )
+                .map_err(|_| VaultError::Backend("select"))?;
+            assert_eq!(dek, vec![0u8; 16]);
+            assert_eq!(nonce, vec![0u8; 24]);
+            assert_eq!(ct, vec![0u8; 32]);
+            tx.commit().map_err(|_| VaultError::Backend("commit"))?;
+            Ok(())
+        })
+        .expect("overwrite in place");
+    }
 }

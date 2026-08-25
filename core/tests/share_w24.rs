@@ -18,7 +18,7 @@ use std::sync::Arc;
 use pg_core::account::AccountStore;
 use pg_core::api::ErrorCode;
 use pg_core::audit::{AuditStore, EventType};
-use pg_core::catalog::DocumentStore;
+use pg_core::catalog::{DocumentStore, EffectiveRetention};
 use pg_core::config::{ConfigStore, RetentionPolicy};
 use pg_core::detector::StubDetector;
 use pg_core::session::{
@@ -26,6 +26,7 @@ use pg_core::session::{
     ImportDocumentIn, OpenApprovalIn, PreviewShareIn, SessionManager, SessionState,
     SetFieldDecisionsIn, SetRetentionDefaultIn, ShareKind, ShareRequestDto, SubmitApprovalIn,
 };
+use pg_core::share;
 use pg_core::vault::{SqlCipherVault, VaultBackend};
 
 const PASSPHRASE: &str = "correct horse battery staple";
@@ -122,6 +123,18 @@ fn export_request(doc_ids: Vec<String>) -> PreviewShareIn {
             ai_instruction: None,
         },
     }
+}
+
+/// testing.md §5.3 / design.md §2.6: the Share Engine sets `no_originals_left_device`
+/// true iff retention was discard **or** the share transmits only the approved version.
+/// A `true`→`false` mutant of the production push (or of this helper) must not survive.
+#[test]
+fn no_originals_left_device_follows_design_2_6_or() {
+    use EffectiveRetention::{Discard, Retain};
+    assert!(share::no_originals_left_device(Discard, true));
+    assert!(share::no_originals_left_device(Discard, false));
+    assert!(share::no_originals_left_device(Retain, true));
+    assert!(!share::no_originals_left_device(Retain, false));
 }
 
 #[test]
@@ -239,6 +252,44 @@ fn commit_bytes_match_preview_and_audit_share() {
     assert!(share.payload_jcs.contains(&doc_id));
     assert!(share.payload_jcs.contains("export_to_person"));
     assert!(!share.payload_jcs.contains("PG-CANARY"));
+}
+
+/// testing.md §5.3: person-export always re-renders approved pages (architecture §11),
+/// so design.md §2.6's OR is true even when a retained original still exists in the vault.
+/// Kills a `no_originals.push(true)` → `false` mutant that AC-4's `is_some()` would miss.
+#[test]
+fn preview_no_originals_left_device_is_true_when_a_retained_original_exists() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let path = dir.path().join("vault.db");
+    let vault = Arc::new(SqlCipherVault::new(path));
+    let keystore = Arc::new(pg_core::keystore::InMemoryKeystore::new());
+    let accounts: Arc<dyn pg_core::account::AccountStore> = vault.clone();
+    let backend: Arc<dyn VaultBackend> = vault.clone();
+    let audit: Arc<dyn pg_core::audit::AuditStore> = vault.clone();
+    let config: Arc<dyn pg_core::config::ConfigStore> = vault.clone();
+    let documents: Arc<dyn DocumentStore> = vault.clone();
+    let mut mgr = SessionManager::new_full(keystore, accounts, backend, audit, config)
+        .with_documents(documents)
+        .with_detector(Arc::new(StubDetector));
+    mgr.create_account(create_in()).expect("create_account");
+    mgr.set_retention_default(SetRetentionDefaultIn {
+        policy: RetentionPolicy::Retain,
+    })
+    .expect("confirm retain");
+    let doc_id = import_and_approve(&mut mgr, "letter.txt");
+    let listed = mgr.list_documents().expect("list");
+    let summary = listed
+        .documents
+        .iter()
+        .find(|d| d.doc_id == doc_id)
+        .expect("imported");
+    assert_eq!(summary.retention, EffectiveRetention::Retain);
+    assert!(summary.has_retained_original);
+
+    let preview = mgr
+        .preview_share(export_request(vec![doc_id]))
+        .expect("preview");
+    assert_eq!(preview.no_originals_left_device, vec![true]);
 }
 
 #[test]

@@ -153,6 +153,43 @@ fn aad_decode_round_trips() {
     assert_eq!(decoded, aad);
 }
 
+/// testing.md §5.3: every `from_code` arm, the accessors, the u16 length boundary,
+/// and the exact 8-byte global record (so `len < 8` vs `<= 8` and `doc_id_end + 1`
+/// vs `* 1` cannot hide). Kinds 1–7 were previously encode-only.
+#[test]
+fn aad_v1_decode_covers_every_kind_and_accessor() {
+    let kinds = [
+        ArtifactKind::Approved,
+        ArtifactKind::Original,
+        ArtifactKind::Variant,
+        ArtifactKind::Config,
+        ArtifactKind::PluginSecret,
+        ArtifactKind::WrappedMaster,
+        ArtifactKind::WrappedDek,
+        ArtifactKind::DocumentMeta,
+    ];
+    for kind in kinds {
+        let aad = Aad::new(kind, "doc-kind", 0x0102_0304);
+        let decoded = Aad::decode(&aad.encode()).expect("decode");
+        assert_eq!(decoded.kind(), kind);
+        assert_eq!(decoded.doc_id(), "doc-kind");
+        assert_eq!(decoded.format_version(), 0x0102_0304);
+    }
+
+    let global = Aad::global(ArtifactKind::Config, 0x0102_0304);
+    assert_eq!(global.encode().len(), 8, "empty doc_id is exactly AAD_FIXED_LEN");
+    let decoded = Aad::decode(&global.encode()).expect("8-byte global decodes");
+    assert_eq!(decoded.doc_id(), "");
+    assert_eq!(decoded.format_version(), 0x0102_0304);
+}
+
+#[test]
+fn aad_try_new_accepts_a_doc_id_of_exactly_u16_max_bytes() {
+    let exact = "x".repeat(u16::MAX as usize);
+    let aad = Aad::try_new(ArtifactKind::Approved, &exact, 1).expect("u16::MAX bytes fit");
+    assert_eq!(aad.doc_id().len(), u16::MAX as usize);
+}
+
 /// Fail closed, never panic, never silently accept (testing.md §5.3).
 #[test]
 fn aad_decode_rejects_truncated_and_malformed_input_fail_closed_testing_5_3() {
@@ -510,6 +547,14 @@ fn dek_zeroize_clears_key_material_testing_5_3() {
     assert_ne!(dek.as_bytes(), before.as_slice());
     assert_eq!(dek.as_bytes(), &[0u8; 32]);
     assert!(dek.is_zeroized());
+}
+
+/// testing.md §5.3 DEK destroy helpers: `is_zeroized() -> true` would survive the
+/// post-zeroize assertion alone. A live key must still read as not destroyed.
+#[test]
+fn dek_is_zeroized_is_false_until_destroyed() {
+    assert!(!Dek::generate().is_zeroized());
+    assert!(!Dek::from_bytes([0x5a; 32]).is_zeroized());
 }
 
 /// A zeroized DEK must not still decrypt what the live DEK encrypted.

@@ -156,6 +156,10 @@ enough that a hung delete/HMAC test is a kill, not a flake (start at 30 s; raise
 config, not by skipping). Nightly: whole core crate minus §5.4. Mutation does not replace
 `cargo test`.
 
+The PR file list, `--examine-re` scopes for `session.rs` / `vault.rs`, and the colocated
+`--test` filters live in [`scripts/mutation-gate.sh`](../../scripts/mutation-gate.sh). CI
+runs that script once per shard and requires every shard.
+
 ---
 
 ## 6. Acceptance tests (AC-1..AC-6)

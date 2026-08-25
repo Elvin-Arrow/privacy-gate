@@ -77,15 +77,40 @@ fn at_unlocked() -> SessionManager {
 fn every_api_md_2_cell_is_covered() {
     use SessionState::{DegradedIntegrity, FirstRun, Locked, Unlocked};
 
-    // (command, first_run, locked, unlocked, degraded_integrity) — literally api.md §2's
-    // table, transcribed row by row so a future edit to that table has an obvious
-    // counterpart to update here.
+    // (command, first_run, locked, unlocked, degraded_integrity) — api.md §2, including
+    // every command registered since W4 (testing.md §5.3 session gating table).
     let expected: &[(&str, bool, bool, bool, bool)] = &[
         ("create_account", true, false, false, false),
         ("unlock", false, true, false, false),
         ("lock", false, false, true, true),
         ("change_passphrase", false, false, true, false),
         ("get_account", false, false, true, true),
+        ("get_integrity_report", false, false, true, true),
+        ("list_audit_events", false, false, true, true),
+        ("get_retention_default", false, false, true, false),
+        ("set_retention_default", false, false, true, false),
+        ("get_detector_preference", false, false, true, false),
+        ("set_detector_preference", false, false, true, false),
+        ("import_document", false, false, true, false),
+        ("list_documents", false, false, true, false),
+        ("get_document", false, false, true, false),
+        ("open_approval", false, false, true, false),
+        ("get_approval_view", false, false, true, false),
+        ("set_field_decisions", false, false, true, false),
+        ("submit_approval", false, false, true, false),
+        ("abort_approval", false, false, true, false),
+        ("delete_document", false, false, true, false),
+        ("delete_retained_original", false, false, true, false),
+        ("list_variants", false, false, true, false),
+        ("get_variant", false, false, true, false),
+        ("save_variant", false, false, true, false),
+        ("delete_variant", false, false, true, false),
+        ("preview_share", false, false, true, false),
+        ("commit_share", false, false, true, false),
+        ("cloud_ai_set_config", false, false, true, false),
+        ("cloud_ai_get_config", false, false, true, false),
+        ("cloud_ai_clear_config", false, false, true, false),
+        ("cloud_ai_test", false, false, true, false),
     ];
 
     for &(command, first_run, locked, unlocked, degraded) in expected {

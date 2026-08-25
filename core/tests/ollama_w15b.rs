@@ -21,10 +21,10 @@ use std::time::Duration;
 
 use pg_core::detector::{
     verify_chunk_entity, AllowlistEntry, Detector, FallbackReason, HybridOllamaV1, OllamaClient,
-    StubDetector, GEMMA4_E2B_CONTEXT_TOKENS, HYBRID_OLLAMA_V1_ID, OLLAMA_ALLOWLISTED_TAG,
-    OFFSET_REJECT_THRESHOLD,
+    StubDetector, CHUNK_OVERLAP_BYTES, CHUNK_SIZE_BYTES, GEMMA4_E2B_CONTEXT_TOKENS,
+    HYBRID_OLLAMA_V1_ID, OFFSET_REJECT_THRESHOLD, OLLAMA_ALLOWLISTED_TAG,
 };
-use pg_core::importer;
+use pg_core::importer::{self, Document, Page, SourceFormat, TextSpan};
 
 const DOC_ID: &str = "00000000-0000-4000-8000-000000000016";
 const GOLDEN_NI: &str = "QQ123456C";
@@ -78,6 +78,7 @@ struct MockState {
     tags_body: String,
     show_body: String,
     generate_body: String,
+    generate_seq: Vec<String>,
     tags_status: u16,
     show_status: u16,
     generate_status: u16,
@@ -102,6 +103,7 @@ impl MockOllama {
             tags_body: happy_tags(OLLAMA_ALLOWLISTED_TAG, FIXTURE_DIGEST),
             show_body: happy_show(FIXTURE_DIGEST),
             generate_body: generate_entities(serde_json::json!([])),
+            generate_seq: Vec::new(),
             tags_status: 200,
             show_status: 200,
             generate_status: 200,
@@ -134,6 +136,10 @@ impl MockOllama {
 
     fn set_generate_entities(&self, entities: serde_json::Value) {
         self.state.lock().expect("state").generate_body = generate_entities(entities);
+    }
+
+    fn set_generate_sequence(&self, bodies: Vec<String>) {
+        self.state.lock().expect("state").generate_seq = bodies;
     }
 
     fn set_tags(&self, body: String) {
@@ -218,7 +224,12 @@ fn handle_conn(mut stream: TcpStream, state: &Mutex<MockState>) {
     if first.starts_with("POST /api/generate") {
         st.generate_calls += 1;
         st.generate_bodies.push(body.to_string());
-        let gen = st.generate_body.clone();
+        let idx = (st.generate_calls as usize).saturating_sub(1);
+        let gen = st
+            .generate_seq
+            .get(idx)
+            .cloned()
+            .unwrap_or_else(|| st.generate_body.clone());
         let status = st.generate_status;
         drop(st);
         reply(&mut stream, status, &gen);
@@ -352,7 +363,10 @@ fn unallowlisted_tag_sends_no_generate() {
     let mock = MockOllama::start();
     mock.set_tags(happy_tags("some-other:tag", FIXTURE_DIGEST));
     let out = detect_text(&mock.hybrid(), GOLDEN_PERSON);
-    assert_eq!(out.fallback_reason, Some(FallbackReason::ModelNotAllowlisted));
+    assert_eq!(
+        out.fallback_reason,
+        Some(FallbackReason::ModelNotAllowlisted)
+    );
     assert_eq!(mock.generate_calls(), 0);
 }
 
@@ -361,7 +375,10 @@ fn cloud_suffixed_tag_is_not_allowlisted_and_sends_no_generate() {
     let mock = MockOllama::start();
     mock.set_tags(happy_tags("gemma4:31b-cloud", FIXTURE_DIGEST));
     let out = detect_text(&mock.hybrid(), GOLDEN_PERSON);
-    assert_eq!(out.fallback_reason, Some(FallbackReason::ModelNotAllowlisted));
+    assert_eq!(
+        out.fallback_reason,
+        Some(FallbackReason::ModelNotAllowlisted)
+    );
     assert_eq!(mock.generate_calls(), 0);
 }
 
@@ -484,6 +501,134 @@ fn rejection_rate_over_threshold_fails_the_whole_ollama_pass() {
         .map(|f| f.span.text.as_str())
         .collect();
     assert_eq!(ninos, vec![GOLDEN_NI]);
+}
+
+#[test]
+fn show_object_without_details_is_schema_verification_failed() {
+    // architecture §10.1.1: `/api/show` must match Ollama's documented shape
+    // (`details` object). `!is_object() || details missing` must not collapse to
+    // `&&` — an object that merely carries a matching digest is not a handshake.
+    let mock = MockOllama::start();
+    mock.set_show(
+        serde_json::json!({
+            "digest": FIXTURE_DIGEST,
+            "modified_at": "2026-01-01T00:00:00Z"
+        })
+        .to_string(),
+    );
+    let out = detect_text(&mock.hybrid(), GOLDEN_PERSON);
+    assert_eq!(
+        out.fallback_reason,
+        Some(FallbackReason::SchemaVerificationFailed)
+    );
+    assert_eq!(mock.generate_calls(), 0);
+}
+
+#[test]
+fn detector_detect_returns_the_outcome_fields() {
+    let mock = MockOllama::start();
+    mock.set_generate_entities(serde_json::json!([{
+        "start": 0,
+        "length": GOLDEN_PERSON.len(),
+        "label": "person",
+        "text": GOLDEN_PERSON
+    }]));
+    let doc = importer::import_text(GOLDEN_PERSON.as_bytes(), DOC_ID).expect("import_text");
+    let fields = mock.hybrid().detect(&doc);
+    assert!(
+        fields.iter().any(|f| f.span.text == GOLDEN_PERSON),
+        "Detector::detect must not drop NER/pattern fields"
+    );
+}
+
+#[test]
+fn rejection_rate_at_threshold_does_not_fail_the_ollama_pass() {
+    // architecture §10.1.4: fail when the rate *exceeds* the threshold, not at
+    // equality. 1 rejected of 2 = 0.5; also distinguishes `/` from `*`.
+    assert_eq!(1.0 / 2.0, OFFSET_REJECT_THRESHOLD);
+    let mock = MockOllama::start();
+    mock.set_generate_entities(serde_json::json!([
+        {"start": 0, "length": 5, "label": "person", "text": "XXXXX"},
+        {"start": 0, "length": GOLDEN_PERSON.len(), "label": "person", "text": GOLDEN_PERSON}
+    ]));
+    let out = detect_text(&mock.hybrid(), GOLDEN_PERSON);
+    assert_eq!(out.fallback_reason, None);
+    assert!(out
+        .fields
+        .iter()
+        .any(|f| { f.classification == "ner" && f.span.text == GOLDEN_PERSON }));
+}
+
+#[test]
+fn ner_absolute_offset_adds_span_chunk_and_entity_starts() {
+    // architecture §10.1.4: document-absolute = span offset + chunk start + entity start.
+    // All three terms must be nonzero so `+`→`-`/`*` cannot collapse to the same u64.
+    let span_offset = 100u64;
+    let pad = "zzzzzz";
+    let filler = "y".repeat(300);
+    let prefix = "x".repeat(CHUNK_SIZE_BYTES - CHUNK_OVERLAP_BYTES);
+    let text = format!("{prefix}{pad}{GOLDEN_PERSON}{filler}");
+    let entity_in_chunk = pad.len() as u32;
+    let chunk_abs = (CHUNK_SIZE_BYTES - CHUNK_OVERLAP_BYTES) as u64;
+    let expected = span_offset + chunk_abs + u64::from(entity_in_chunk);
+
+    let mock = MockOllama::start();
+    mock.set_generate_sequence(vec![
+        generate_entities(serde_json::json!([])),
+        generate_entities(serde_json::json!([{
+            "start": entity_in_chunk,
+            "length": GOLDEN_PERSON.len(),
+            "label": "person",
+            "text": GOLDEN_PERSON
+        }])),
+    ]);
+    let doc = Document {
+        id: DOC_ID.to_string(),
+        source_format: SourceFormat::Text,
+        pages: vec![Page {
+            spans: vec![TextSpan {
+                byte_offset: span_offset,
+                byte_length: text.len() as u64,
+                text,
+                page_index: 0,
+            }],
+        }],
+        raw_bytes: Vec::new(),
+    };
+    let out = mock.hybrid().detect_with_outcome(&doc);
+    assert_eq!(out.fallback_reason, None);
+    let ner = out
+        .fields
+        .iter()
+        .find(|f| f.classification == "ner")
+        .expect("verified NER field");
+    assert_eq!(ner.span.byte_offset, expected);
+    assert_eq!(ner.span.text, GOLDEN_PERSON);
+}
+
+#[test]
+fn long_document_sends_overlapping_chunk_prompts() {
+    let text = "a".repeat(CHUNK_SIZE_BYTES + 100);
+    let mock = MockOllama::start();
+    let out = detect_text(&mock.hybrid(), &text);
+    assert_eq!(out.fallback_reason, None);
+    assert!(mock.generate_calls() >= 2);
+    let bodies = mock.generate_bodies();
+    let p0 = generate_prompt(&bodies[0]);
+    let p1 = generate_prompt(&bodies[1]);
+    assert_eq!(p0.len(), CHUNK_SIZE_BYTES);
+    assert_eq!(
+        &p0[p0.len() - CHUNK_OVERLAP_BYTES..],
+        &p1[..CHUNK_OVERLAP_BYTES]
+    );
+}
+
+fn generate_prompt(body: &str) -> String {
+    let v: serde_json::Value = serde_json::from_str(body).expect("generate json");
+    v.get("prompt")
+        .and_then(|p| p.as_str())
+        .expect("prompt")
+        .to_string()
 }
 
 /// Informational: real-Ollama nightly (testing.md §11). Ignored unless the runner

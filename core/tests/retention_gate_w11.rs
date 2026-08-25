@@ -22,7 +22,10 @@ use pg_core::audit::AuditStore;
 use pg_core::catalog::{DocumentStore, EffectiveRetention};
 use pg_core::config::{ConfigStore, RetentionPolicy};
 use pg_core::keystore::InMemoryKeystore;
-use pg_core::session::{CreateAccountIn, ImportDocumentIn, SessionManager, SetRetentionDefaultIn};
+use pg_core::session::{
+    retention_override_forbidden, CreateAccountIn, ImportDocumentIn, SessionManager,
+    SetRetentionDefaultIn,
+};
 use pg_core::vault::{SqlCipherVault, VaultBackend};
 
 const PASSPHRASE: &str = "correct horse battery staple";
@@ -213,6 +216,39 @@ fn ac6_never_retain_default_with_no_override_imports_as_discard() {
         .import_document(import_in("letter.txt", b"hello world", None))
         .expect("import with no override must succeed under never_retain");
     assert_eq!(out.summary.retention, EffectiveRetention::Discard);
+}
+
+/// testing.md §5.3 `retention_loosen_forbidden`: unit table so a `&&`→`||` or
+/// `NeverRetain`→`Retain` mutant in the helper cannot hide behind command-level
+/// `import_document` setup.
+#[test]
+fn retention_override_forbidden_is_only_never_retain_plus_retain() {
+    for policy in [
+        RetentionPolicy::Discard,
+        RetentionPolicy::Retain,
+        RetentionPolicy::NeverRetain,
+    ] {
+        assert!(
+            !retention_override_forbidden(policy, None),
+            "{policy:?} + None"
+        );
+        assert!(
+            !retention_override_forbidden(policy, Some(EffectiveRetention::Discard)),
+            "{policy:?} + discard"
+        );
+    }
+    assert!(!retention_override_forbidden(
+        RetentionPolicy::Discard,
+        Some(EffectiveRetention::Retain),
+    ));
+    assert!(!retention_override_forbidden(
+        RetentionPolicy::Retain,
+        Some(EffectiveRetention::Retain),
+    ));
+    assert!(retention_override_forbidden(
+        RetentionPolicy::NeverRetain,
+        Some(EffectiveRetention::Retain),
+    ));
 }
 
 /// A `discard` or `retain` default (not `never_retain`) never triggers

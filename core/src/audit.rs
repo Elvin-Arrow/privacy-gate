@@ -271,7 +271,7 @@ pub fn append(
     if doc_id.is_some_and(|id| id.len() > usize::from(u16::MAX)) {
         return Err(AuditError::Backend("doc_id too long for canonical encoding"));
     }
-    if payload_jcs.len() > u32::MAX as usize {
+    if payload_exceeds_canonical_u32(payload_jcs) {
         return Err(AuditError::Backend("payload too long for canonical encoding"));
     }
 
@@ -295,6 +295,12 @@ pub fn append(
 
     store.append_row(&row)?;
     Ok(row)
+}
+
+/// 4 GiB payloads are unallocatable in tests; `>`/`==`/`>=` on `u32::MAX` cannot be killed.
+#[mutants::skip]
+fn payload_exceeds_canonical_u32(payload_jcs: &str) -> bool {
+    payload_jcs.len() > u32::MAX as usize
 }
 
 // ---------------------------------------------------------------------------
@@ -479,5 +485,183 @@ mod tests {
         assert_eq!(bytes[18], 1, "doc_id_present = 1");
         assert_eq!(&bytes[19..21], &3u16.to_be_bytes(), "doc_id_len = 3");
         assert_eq!(&bytes[21..24], b"abc");
+    }
+
+    struct VecStore(std::sync::Mutex<Vec<AuditRow>>);
+
+    impl AuditStore for VecStore {
+        fn append_row(&self, row: &AuditRow) -> Result<(), AuditError> {
+            self.0.lock().expect("lock").push(row.clone());
+            Ok(())
+        }
+        fn replay(&self) -> Result<Vec<AuditRow>, AuditError> {
+            Ok(self.0.lock().expect("lock").clone())
+        }
+    }
+
+    fn signed_rows(n: u64, key: &[u8; 32]) -> Vec<AuditRow> {
+        let store = VecStore(std::sync::Mutex::new(Vec::new()));
+        for i in 0..n {
+            append(
+                &store,
+                key,
+                EventType::Import,
+                None,
+                1000 + i,
+                OriginalsFlag::Unset,
+                "{}",
+            )
+            .expect("append");
+        }
+        store.replay().expect("replay")
+    }
+
+    #[test]
+    fn event_type_codes_round_trip() {
+        for (code, ty) in [
+            (1u8, EventType::Import),
+            (2, EventType::Detect),
+            (3, EventType::Approve),
+            (4, EventType::Share),
+            (5, EventType::DiscardOriginal),
+            (6, EventType::Delete),
+        ] {
+            assert_eq!(ty.as_u8(), code);
+            assert_eq!(EventType::from_u8(code).expect("known"), ty);
+        }
+        assert!(EventType::from_u8(0).is_err());
+        assert!(EventType::from_u8(7).is_err());
+    }
+
+    #[test]
+    fn originals_flag_codes_round_trip() {
+        assert_eq!(OriginalsFlag::Unset.as_u8(), 0);
+        assert_eq!(OriginalsFlag::False.as_u8(), 1);
+        assert_eq!(OriginalsFlag::True.as_u8(), 2);
+        assert_eq!(OriginalsFlag::from_u8(0).expect("0"), OriginalsFlag::Unset);
+        assert_eq!(OriginalsFlag::from_u8(1).expect("1"), OriginalsFlag::False);
+        assert_eq!(OriginalsFlag::from_u8(2).expect("2"), OriginalsFlag::True);
+        assert!(OriginalsFlag::from_u8(3).is_err());
+    }
+
+    #[test]
+    fn audit_error_display_includes_the_class() {
+        let err = AuditError::Backend("doc_id too long for canonical encoding");
+        assert!(format!("{err}").contains("doc_id too long for canonical encoding"));
+    }
+
+    #[test]
+    fn head_for_uses_the_row_sequence_and_canonical_hash() {
+        let key = [0x11u8; 32];
+        let rows = signed_rows(1, &key);
+        let head = head_for(&rows[0]);
+        assert_eq!(head.sequence, 1);
+        assert_ne!(head, crate::keystore::AuditHead::GENESIS);
+        assert_eq!(head.head_hash, head_hash_of(&rows[0]));
+    }
+
+    #[test]
+    fn append_rejects_a_doc_id_longer_than_u16_and_accepts_exactly_u16_max() {
+        let store = VecStore(std::sync::Mutex::new(Vec::new()));
+        let key = [0x11u8; 32];
+        let too_long = "x".repeat(usize::from(u16::MAX) + 1);
+        assert!(append(
+            &store,
+            &key,
+            EventType::Import,
+            Some(&too_long),
+            1,
+            OriginalsFlag::Unset,
+            "{}",
+        )
+        .is_err());
+        let exact = "x".repeat(usize::from(u16::MAX));
+        assert!(append(
+            &store,
+            &key,
+            EventType::Detect,
+            Some(&exact),
+            1,
+            OriginalsFlag::True,
+            "{}",
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn verify_detects_a_signature_only_break() {
+        let key = [0x11u8; 32];
+        let mut rows = signed_rows(1, &key);
+        rows[0].entry_signature[0] ^= 0xff;
+        match verify_against_head(&rows, &key, head_for(&signed_rows(1, &key)[0])) {
+            VerifyOutcome::Failure {
+                kind: FailureKind::Modification,
+                first_bad_sequence: Some(1),
+                verified_tail_sequence: 0,
+            } => {}
+            other => panic!("expected in-loop Modification, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn verify_detects_a_re_signed_wrong_sequence() {
+        let key = [0x11u8; 32];
+        let mut rows = signed_rows(1, &key);
+        rows[0].sequence = 99;
+        rows[0].entry_signature = hmac_sha256(&key, &canonical_bytes(&rows[0]));
+        match verify_against_head(&rows, &key, head_for(&signed_rows(1, &key)[0])) {
+            VerifyOutcome::Failure {
+                kind: FailureKind::Modification,
+                first_bad_sequence: Some(1),
+                verified_tail_sequence: 0,
+            } => {}
+            other => panic!("expected in-loop Modification, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn verify_detects_a_re_signed_wrong_prev_hash() {
+        let key = [0x11u8; 32];
+        let mut rows = signed_rows(1, &key);
+        rows[0].prev_entry_hash[0] ^= 0xff;
+        rows[0].entry_signature = hmac_sha256(&key, &canonical_bytes(&rows[0]));
+        match verify_against_head(&rows, &key, head_for(&signed_rows(1, &key)[0])) {
+            VerifyOutcome::Failure {
+                kind: FailureKind::Modification,
+                first_bad_sequence: Some(1),
+                verified_tail_sequence: 0,
+            } => {}
+            other => panic!("expected in-loop Modification, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn verify_same_sequence_wrong_hash_is_modification_not_truncation() {
+        let key = [0x11u8; 32];
+        let rows = signed_rows(1, &key);
+        let mut head = head_for(&rows[0]);
+        head.head_hash[0] ^= 0xff;
+        match verify_against_head(&rows, &key, head) {
+            VerifyOutcome::Failure {
+                kind: FailureKind::Modification,
+                ..
+            } => {}
+            other => panic!("expected Modification, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn verify_fast_forwards_one_unpersisted_row_after_a_nonzero_head() {
+        let key = [0x11u8; 32];
+        // 33 rows, persisted head at 32: k = 1. `tail + head` is 65, outside the window,
+        // so a `-`→`+` mutant of `k` cannot still fast-forward.
+        let rows = signed_rows(33, &key);
+        let head = head_for(&rows[31]);
+        match verify_against_head(&rows, &key, head) {
+            VerifyOutcome::FastForward { new_head } => {
+                assert_eq!(new_head.sequence, 33);
+            }
+            other => panic!("expected FastForward, got {other:?}"),
+        }
     }
 }

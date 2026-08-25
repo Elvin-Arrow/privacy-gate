@@ -40,9 +40,9 @@ pub use hybrid::{
 };
 pub use ollama::{
     default_ollama_allowlist, verify_chunk_entity, AllowlistEntry, FallbackReason, HybridOllamaV1,
-    OllamaClient, OllamaDetectOutcome, GEMMA4_E2B_CONTEXT_TOKENS, HYBRID_OLLAMA_V1_ID,
+    OllamaClient, OllamaDetectOutcome, CHUNK_OVERLAP_BYTES, CHUNK_SIZE_BYTES,
+    GEMMA4_E2B_CONTEXT_TOKENS, HYBRID_OLLAMA_V1_ID, OFFSET_REJECT_THRESHOLD,
     OLLAMA_ALLOWLISTED_TAG, OLLAMA_GEMMA4_E2B_DIGEST, OLLAMA_LOOPBACK_ADDR,
-    OFFSET_REJECT_THRESHOLD,
 };
 pub use patterns_uk::{PatternsUkV1, PATTERNS_UK_V1_ID};
 

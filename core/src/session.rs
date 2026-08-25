@@ -185,17 +185,10 @@ impl core::fmt::Display for SessionState {
 /// `get_session_state` is deliberately **absent**: api.md §2 says it is "callable in every
 /// state (including before first run)," i.e. it has no gate at all, so it has no row.
 ///
-/// Only commands that exist so far are listed (dev-plan W4 "Do not: implement
-/// gated-but-unwritten commands"). `list_audit_events` and Cloud AI
-/// commands remain unregistered. Config, catalog, variant, share, and approval commands that do
-/// exist share api.md §2's generic document/config row: `no | no | yes | no` — unavailable
-/// while `degraded_integrity` (C-API-6), unlike `lock`/`get_account`/`get_integrity_report`.
-///
-/// [`SessionState::DegradedIntegrity`] appears in the table even though no command in this
-/// codebase can put a live `SessionManager` into that state yet (W5's gap — see
-/// [`SessionManager::verify_integrity_on_unlock`]). The table states the spec's answer for
-/// that column now, so W5 only has to make the state reachable, not re-derive which
-/// commands accept it.
+/// Config, catalog, variant, share, approval, delete, and Cloud AI commands share api.md
+/// §2's generic document/config row: `no | no | yes | no` — unavailable while
+/// `degraded_integrity` (C-API-6), unlike `lock` / `get_account` / `get_integrity_report`
+/// / `list_audit_events`. `core/tests/session_gating_w4.rs` walks every cell.
 const SESSION_TABLE: &[(&str, &[SessionState])] = &[
     (
         "create_account",
@@ -281,6 +274,17 @@ pub fn command_allowed(command: &str, state: SessionState) -> bool {
         .iter()
         .find(|(name, _)| *name == command)
         .is_some_and(|(_, states)| states.contains(&state))
+}
+
+/// AC-6 / api.md §5.3 / testing.md §5.3: per-import retain is forbidden only against a
+/// confirmed `never_retain` default. A discard override is tightening, not loosening.
+#[must_use]
+pub fn retention_override_forbidden(
+    policy: RetentionPolicy,
+    retention_override: Option<EffectiveRetention>,
+) -> bool {
+    policy == RetentionPolicy::NeverRetain
+        && retention_override == Some(EffectiveRetention::Retain)
 }
 
 /// api.md §5.1 `get_integrity_report` Out shape.
@@ -2117,9 +2121,7 @@ impl SessionManager {
         // retention_loosen_forbidden." A per-import *discard* against never_retain is
         // tightening, not loosening, and is allowed — only the retain direction is
         // forbidden.
-        if config.policy == RetentionPolicy::NeverRetain
-            && input.retention_override == Some(EffectiveRetention::Retain)
-        {
+        if retention_override_forbidden(config.policy, input.retention_override) {
             return Err(ApiError::retention_loosen_forbidden());
         }
 
@@ -2862,7 +2864,12 @@ impl SessionManager {
                     visible_field_ids: visible,
                     redacted_field_ids: redacted,
                 });
-                no_originals.push(true);
+                // Person-export and share-to-AI both send approved content only
+                // (architecture §11 / §9); a retained original never joins the egress.
+                no_originals.push(crate::share::no_originals_left_device(
+                    meta.retention,
+                    true,
+                ));
                 filenames.push(meta.source_filename);
                 pages.extend(redacted_content.pages);
             }

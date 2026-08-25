@@ -18,6 +18,9 @@ target/
 # Cargo
 Cargo.lock
 
+# cargo-mutants output (testing.md §5)
+mutants.out/
+
 # Vite
 .vite
 

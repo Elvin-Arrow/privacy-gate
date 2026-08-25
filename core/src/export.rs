@@ -162,3 +162,36 @@ fn pdf_date(unix_ms: u64) -> Date {
         .second(second)
         .utc_offset_hour(0)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn wrap_lines_breaks_only_when_the_next_word_would_exceed_max() {
+        let left = "a".repeat(88);
+        // 88 + space + 1 = 90, not > MAX_LINE_CHARS: stays one line (`>` vs `>=`).
+        assert_eq!(wrap_lines(&format!("{left} b")), vec![format!("{left} b")]);
+        // 88 + space + 2 = 91 > 90: wraps. `+`→`-`/`*` on the length sum would not.
+        assert_eq!(wrap_lines(&format!("{left} bb")), vec![left, "bb".into()]);
+    }
+
+    #[test]
+    fn page_content_starts_below_the_top_margin_and_leads_later_lines_down() {
+        let one = String::from_utf8_lossy(&page_content("hello")).into_owned();
+        let two = String::from_utf8_lossy(&page_content("hello\nworld")).into_owned();
+        let start_y = PAGE_HEIGHT - MARGIN;
+        assert!(
+            one.contains(&start_y.to_string()),
+            "Td y must be PAGE_HEIGHT - MARGIN ({start_y}), got {one:?}"
+        );
+        assert!(
+            !one.contains(&format!("-{}", LINE_HEIGHT)),
+            "a single line must not also lead by -LINE_HEIGHT (deleted `!first`): {one:?}"
+        );
+        assert!(
+            two.contains(&format!("-{}", LINE_HEIGHT)),
+            "subsequent lines lead down by -LINE_HEIGHT, got {two:?}"
+        );
+    }
+}
