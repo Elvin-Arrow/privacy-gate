@@ -9,22 +9,14 @@ user import a document, review/approve which detected fields (PII) get redacted,
 redacted, re-rendered PDF — with an audit trail and no plaintext ever written to disk outside an
 encrypted vault. Full product intent: `docs/idea.md`.
 
-## Development environment — Docker-only
+## Development environment — native host
 
-**Do not install Rust, Node, or the Tauri CLI on the host.** All builds, tests, and scaffolding run
-inside the dev container defined by `Dockerfile.dev` / `docker-compose.yml`. This is a local-machine
-constraint, not a CI constraint — CI (`.github/workflows/ci.yml`) installs its own native toolchain
-on GitHub-hosted runners and does not use Docker.
-
-```bash
-docker compose build dev      # first time / after Dockerfile.dev changes
-make shell                    # interactive shell in the dev container
-```
-
-Inside the container (or via `docker compose run --rm dev <cmd>` from the host):
+Rust, Node, and the Tauri CLI are installed directly on the host — **no Docker**. Run builds, tests,
+and scaffolding straight on the host; the same commands work in CI (`.github/workflows/ci.yml`), which
+also installs its own native toolchain on GitHub-hosted runners.
 
 ```bash
-npm install                        # first time only
+npm install                        # first time only (add packages: npm install <pkg>)
 cargo test                         # all Rust tests (pg-core + privacy-gate crates)
 cargo test -p pg-core <test_name>  # a single test in the core crate
 npm run check                      # Svelte/TypeScript typecheck
@@ -34,11 +26,11 @@ npm run tauri:dev                  # full Tauri app, dev mode
 npm run tauri:build                # full Tauri app, release build
 ```
 
-Makefile wraps the common ones (`make test`, `make check`, `make test-ui`, `make build`, `make clean`,
-`make help`), each running inside the container automatically.
+`Dockerfile.dev` / `docker-compose.yml` are no longer used for local development and can be ignored
+(or removed) — do not reintroduce a Docker dependency for builds, tests, or dependency installs.
 
-The container mounts the repo at `/workspace` and caches the Cargo registry, Cargo target dir, and
-npm packages in named volumes — first run is slow (image build + full fetch), later runs are fast.
+Makefile wraps the common ones (`make test`, `make check`, `make test-ui`, `make build`, `make clean`,
+`make help`), each running natively on the host.
 
 ## Architecture
 
@@ -211,10 +203,29 @@ read path and `import_document` write path; `src/lib/RetentionModal.svelte` is d
 import; `src/lib/RetentionOverrideControl.svelte` is the compact per-import
 `retention_override` control; `pg://detect-progress` drives a progress bar; path-separator
 filename rejection in the UI is defense-in-depth only — `core/src/session.rs`'s
-`validate_import_filename` already rejects it. The Approval screen (`open_approval`) is
-**not** built yet — that's `W33` — so a row's Open action shows a "not yet available"
-placeholder instead of navigating; `W33` replaces that placeholder with real navigation).
-`W33` (UI: approval) is next; see `docs/dev-plan.md` for the full sequence and
+`validate_import_filename` already rejects it), and `W33` (UI: approval —
+`src/screens/ApprovalScreen.svelte` two-pane consent: locatable spans, keep/redact not
+colour-only, **Approve and store** enabled only when `lifecycle === "decided"`; first 200
+field rows on first paint; Cancel/`onDestroy` abort the RAM session; vault Open and
+post-import navigate here, approved-row Open stays a share placeholder until W34), and
+`W34` (UI: share, preview, save dialog — `src/screens/ShareScreen.svelte` person-export
+only: `preview_share` then OS **save** dialog, default name `suggested_filename`, cancel =
+no `commit_share`, write-fail Retry save without a second commit, FR-6.2 warning as a
+persistent banner not a toast, blob URL teardown; vault Open on an approved row navigates
+here). `W35` (UI: audit + integrity failure — `src/screens/AuditScreen.svelte` table from
+`list_audit_events`, filters by document and type, share rows answer what/to whom without
+field text; `pg://session-changed` to `degraded_integrity` never offers Vault; Save report
+uses the same documents-folder save dialog as share). `W36` (UI: variants empty/list +
+Cloud AI share confirm — `src/screens/VariantsScreen.svelte` empty copy and
+delete-with-confirm, no in-place edit; vault **Manage variants**; ShareScreen Ask Cloud
+AI tab shows §15 confirm + read-only `ai_payload_preview` before `commit_share`;
+`cloud_ai_not_configured` sends the user to Settings; save as variant from share
+overrides). `W37` (acceptance pack AC-1..AC-7 — `core/tests/acceptance_w37.rs` is the
+named in-process command suite CI prints; fills AC-2 multi-doc order and AC-5
+stolen-vault-after-approve; no real Cloud AI host). `W38` (mutation gate —
+`scripts/mutation-gate.sh` shards testing.md §5.3 at S = 1.00 after equivalent skips;
+CI matrix job `mutants` is required; nightly full `pg-core` minus §5.4). `W39` (perf +
+no-plaintext watcher) is next; see `docs/dev-plan.md` for the full sequence and
 `docs/dev-log/` for what each completed chunk did and any problems hit along the way.
 
 ## Agent skills
