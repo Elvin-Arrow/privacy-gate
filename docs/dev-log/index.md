@@ -55,6 +55,7 @@ diary. Each entry links to affected specs and decisions.
 - [0046-w34-ui-share](./0046-w34-ui-share.md) — W34: person-export share preview + OS save dialog (OQ-4) — `preview_share` then save (not open); cancel = no `commit_share`; confirm commits then writes in-memory `pdf_bytes`; write-fail Retry save without a second commit; FR-6.2 warning is a persistent banner. Approved-row Open navigates here. 81 Vitest tests. Audit/integrity UI is W35.
 - [0047-w35-ui-audit](./0047-w35-ui-audit.md) — W35: audit table (`list_audit_events`) + integrity fail-closed — Audit trail is real primary nav; share rows answer what/to whom without field text; `pg://session-changed` to degraded never reaches Vault; Save report uses the documents-folder save dialog. 88 Vitest tests. Variants + Cloud AI share confirm is W36.
 - [0048-w36-ui-variants-ai](./0048-w36-ui-variants-ai.md) — W36: variants empty/list + Cloud AI share confirm — `VariantsScreen` empty copy and delete-with-confirm (no edit); vault **Manage variants**; ShareScreen Ask Cloud AI shows §15 confirm + read-only payload before commit. 94 Vitest tests. Acceptance pack AC-1..AC-7 is W37.
+- [0049-w37-acceptance-pack](./0049-w37-acceptance-pack.md) — W37: AC-1..AC-7 in-process pack (`core/tests/acceptance_w37.rs`) — fills multi-doc share order and stolen-vault-after-approve gaps; CI prints the seven `AC-n` names. Mutation gate is W38.
 
 ## Navigation
 
